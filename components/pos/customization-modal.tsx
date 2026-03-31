@@ -73,7 +73,7 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
 
   return (
     <Dialog open={!!item} onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <span className="text-3xl">{item.image}</span>
@@ -84,7 +84,7 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-4">
+        <div className="space-y-5 py-4 overflow-y-auto pr-1">
           {/* Size Selection */}
           <div>
             <h4 className="text-sm font-medium text-foreground mb-3">Size</h4>
@@ -131,7 +131,7 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
           {/* Extra Toppings */}
           <div>
             <h4 className="text-sm font-medium text-foreground mb-3">Extra Toppings</h4>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {extraToppings.map((topping) => (
                 <label
                   key={topping.id}
@@ -152,9 +152,11 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
             </div>
           </div>
 
-          {/* Quantity */}
-          <div>
-            <h4 className="text-sm font-medium text-foreground mb-3">Quantity</h4>
+        </div>
+
+        <DialogFooter className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium text-foreground">Quantity</span>
             <div className="flex items-center gap-4">
               <Button
                 variant="outline"
@@ -174,16 +176,16 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
               </Button>
             </div>
           </div>
-        </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleAdd} className="gap-2">
-            Add to Order
-            <span className="font-bold">${calculateTotal().toFixed(2)}</span>
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button variant="outline" onClick={onClose} className="w-full sm:w-auto">
+              Cancel
+            </Button>
+            <Button onClick={handleAdd} className="gap-2 w-full sm:w-auto">
+              Add to Order
+              <span className="font-bold">${calculateTotal().toFixed(2)}</span>
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
