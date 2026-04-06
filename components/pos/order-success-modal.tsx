@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import type { PaymentMethod } from '@/lib/pos-data'
+import type { CustomerDetails, OrderType, PaymentMethod } from '@/lib/pos-data'
 
 interface OrderSuccessModalProps {
   open: boolean
@@ -17,6 +17,8 @@ interface OrderSuccessModalProps {
   total: number
   paymentMethod: PaymentMethod
   change?: number
+  orderType: OrderType
+  customer: CustomerDetails
   onClose: () => void
   onPrintReceipt: () => void
 }
@@ -27,6 +29,8 @@ export function OrderSuccessModal({
   total,
   paymentMethod,
   change,
+  orderType,
+  customer,
   onClose,
   onPrintReceipt,
 }: OrderSuccessModalProps) {
@@ -36,9 +40,18 @@ export function OrderSuccessModal({
     upi: 'UPI',
   }
 
+  const orderTypeLabels: Record<OrderType, string> = {
+    'dine-in': 'Dine In',
+    takeaway: 'Takeaway',
+    delivery: 'Delivery',
+  }
+
   return (
     <Dialog open={open} onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-md" showCloseButton={false}>
+      <DialogContent
+        className="flex max-h-[90vh] min-h-0 flex-col overflow-y-auto sm:max-w-md"
+        showCloseButton={false}
+      >
         <DialogTitle className="sr-only">Order Complete</DialogTitle>
         <DialogDescription className="sr-only">
           Your order has been successfully placed
@@ -58,8 +71,26 @@ export function OrderSuccessModal({
           </div>
 
           {/* Order Details */}
-          <div className="bg-secondary rounded-xl p-4 space-y-3">
-            <div className="flex justify-between items-center">
+          <div className="bg-secondary rounded-xl p-4 space-y-3 text-left">
+            <div className="flex justify-between items-center gap-2">
+              <span className="text-muted-foreground shrink-0">Order type</span>
+              <Badge variant="outline">{orderTypeLabels[orderType]}</Badge>
+            </div>
+            <div className="space-y-1 border-t border-border pt-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Customer</p>
+              <p className="font-medium text-foreground">{customer.name}</p>
+              <p className="text-sm text-muted-foreground">{customer.phone}</p>
+              {orderType === 'delivery' && customer.address && (
+                <p className="text-sm text-foreground mt-2 whitespace-pre-wrap">{customer.address}</p>
+              )}
+              {orderType === 'delivery' && customer.deliveryNotes && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  <span className="font-medium text-foreground">Notes: </span>
+                  {customer.deliveryNotes}
+                </p>
+              )}
+            </div>
+            <div className="flex justify-between items-center border-t border-border pt-3">
               <span className="text-muted-foreground">Order Number</span>
               <span className="font-mono font-bold text-foreground">{orderNumber}</span>
             </div>

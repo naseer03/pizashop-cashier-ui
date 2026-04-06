@@ -16,6 +16,14 @@ export interface CartItem extends MenuItem {
 
 export type OrderType = 'dine-in' | 'takeaway' | 'delivery'
 
+export interface CustomerDetails {
+  name: string
+  phone: string
+  /** Set for delivery orders */
+  address?: string
+  deliveryNotes?: string
+}
+
 export type PaymentMethod = 'cash' | 'card' | 'upi'
 
 export type DiscountType = 'percentage' | 'fixed'

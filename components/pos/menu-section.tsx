@@ -53,7 +53,7 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
           <Star className="size-4 text-accent" />
           <span className="text-sm font-medium text-foreground">Quick Add</span>
         </div>
-        <ScrollArea className="w-full">
+        <ScrollArea className="w-full min-w-0 max-w-full">
           <div className="flex gap-2 pb-1">
             {popularItems.map((item) => (
               <button
@@ -95,7 +95,7 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
       </div>
 
       {/* Menu Grid */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1 basis-0">
         <div className="p-3 sm:p-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3">
             {filteredItems.map((item) => (

@@ -73,8 +73,8 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
 
   return (
     <Dialog open={!!item} onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-3xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="flex min-h-0 max-h-[90vh] flex-col sm:max-w-3xl">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-3">
             <span className="text-3xl">{item.image}</span>
             <span>{item.name}</span>
@@ -84,7 +84,7 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-4 overflow-y-auto pr-1">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4 pr-1">
           {/* Size Selection */}
           <div>
             <h4 className="text-sm font-medium text-foreground mb-3">Size</h4>
@@ -154,7 +154,7 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
 
         </div>
 
-        <DialogFooter className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <DialogFooter className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <span className="text-sm font-medium text-foreground">Quantity</span>
             <div className="flex items-center gap-4">

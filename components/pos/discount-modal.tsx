@@ -62,8 +62,8 @@ export function DiscountModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] min-h-0 flex-col sm:max-w-md">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Tag className="size-5 text-primary" />
             Apply Discount
@@ -73,7 +73,7 @@ export function DiscountModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-4">
           {/* Preset Discounts */}
           <div className="space-y-3">
             <h4 className="text-sm font-medium text-foreground">Quick Discounts</h4>
@@ -163,7 +163,7 @@ export function DiscountModal({
           </div>
         </div>
 
-        <DialogFooter className="flex-row gap-2 sm:justify-between">
+        <DialogFooter className="shrink-0 flex-row gap-2 sm:justify-between">
           {currentDiscount && currentDiscount.value > 0 && (
             <Button
               variant="outline"

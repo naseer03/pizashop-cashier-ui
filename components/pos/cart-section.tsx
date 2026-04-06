@@ -57,7 +57,7 @@ export function CartSection({
   }
 
   return (
-    <div className="w-full lg:w-80 xl:w-96 bg-card border-t lg:border-t-0 lg:border-l border-border flex flex-col shrink-0 max-h-[50vh] lg:max-h-full">
+    <div className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden bg-card border-t border-border max-h-[50vh] lg:h-full lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l xl:w-96">
       {/* Header */}
       <div className="p-3 sm:p-4 border-b border-border shrink-0">
         <div className="flex items-center justify-between">
@@ -75,7 +75,7 @@ export function CartSection({
       </div>
 
       {/* Cart Items */}
-      <ScrollArea className="flex-1 min-h-0">
+      <ScrollArea className="min-h-0 flex-1 basis-0">
         {cart.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 sm:h-48 text-muted-foreground">
             <ShoppingCart className="size-10 sm:size-12 mb-2 sm:mb-3 opacity-50" />

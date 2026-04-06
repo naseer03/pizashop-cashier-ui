@@ -138,6 +138,13 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Allow vertical scroll when content exceeds the viewport (e.g. login, zoomed UI) */
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  html {
+    overflow-x: hidden;
   }
   
   /* Custom scrollbar styles */

@@ -1,6 +1,16 @@
 'use client'
 
-import { Search, LogOut, Wifi, WifiOff, Clock, Sun, Moon, Menu } from 'lucide-react'
+import {
+  Search,
+  LogOut,
+  Wifi,
+  WifiOff,
+  Clock,
+  Sun,
+  Moon,
+  Menu,
+  ClipboardList,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { OrderType } from '@/lib/pos-data'
@@ -13,19 +23,28 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import { OrdersHistorySheet } from '@/components/pos/orders-history-sheet'
 
 interface TopBarProps {
   searchQuery: string
   setSearchQuery: (query: string) => void
   orderType: OrderType
   setOrderType: (type: OrderType) => void
+  onLogout?: () => void
 }
 
-export function TopBar({ searchQuery, setSearchQuery, orderType, setOrderType }: TopBarProps) {
+export function TopBar({
+  searchQuery,
+  setSearchQuery,
+  orderType,
+  setOrderType,
+  onLogout,
+}: TopBarProps) {
   const [currentTime, setCurrentTime] = useState<string>('')
   const [isOnline, setIsOnline] = useState(true)
   const [mounted, setMounted] = useState(false)
   const { theme, setTheme } = useTheme()
+  const [ordersOpen, setOrdersOpen] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -70,6 +89,27 @@ export function TopBar({ searchQuery, setSearchQuery, orderType, setOrderType }:
           <span className="text-xl sm:text-2xl">🍕</span>
           <span className="font-bold text-base sm:text-lg text-foreground hidden md:inline">Pizza POS</span>
         </div>
+
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="hidden shrink-0 gap-1.5 px-3 sm:inline-flex"
+          onClick={() => setOrdersOpen(true)}
+        >
+          <ClipboardList className="size-4" />
+          Orders
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="size-9 shrink-0 sm:hidden"
+          onClick={() => setOrdersOpen(true)}
+          aria-label="Orders"
+        >
+          <ClipboardList className="size-4" />
+        </Button>
         
         <div className="relative flex-1 max-w-xs sm:max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -130,11 +170,19 @@ export function TopBar({ searchQuery, setSearchQuery, orderType, setOrderType }:
           <span className="text-muted-foreground">John Doe</span>
         </div>
 
-        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground"
+          onClick={onLogout}
+        >
           <LogOut className="size-4" />
           <span className="sr-only">Logout</span>
         </Button>
       </div>
+
+      <OrdersHistorySheet open={ordersOpen} onOpenChange={setOrdersOpen} />
 
       {/* Mobile Menu */}
       <div className="flex md:hidden items-center gap-2">
@@ -203,8 +251,15 @@ export function TopBar({ searchQuery, setSearchQuery, orderType, setOrderType }:
                   <p className="font-medium text-foreground">John Doe</p>
                   <p className="text-xs text-muted-foreground">Cashier</p>
                 </div>
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={onLogout}
+                >
                   <LogOut className="size-4" />
+                  <span className="sr-only">Logout</span>
                 </Button>
               </div>
             </div>
