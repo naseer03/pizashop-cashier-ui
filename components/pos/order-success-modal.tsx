@@ -37,7 +37,7 @@ export function OrderSuccessModal({
   const paymentLabels: Record<PaymentMethod, string> = {
     cash: 'Cash',
     card: 'Card',
-    upi: 'UPI',
+    online: 'Online',
   }
 
   const orderTypeLabels: Record<OrderType, string> = {

@@ -1,10 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Star } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
-import { menuItems, type MenuItem, type CartItem } from '@/lib/pos-data'
+import { getClientSession } from '@/lib/auth'
+import {
+  DEFAULT_MENU_CATEGORIES,
+  mapApiCategoriesToTabs,
+  mapApiMenuItems,
+  type ApiCategory,
+  type ApiMenuItem,
+  type MenuCategoryTab,
+  type MenuItem,
+  type CartItem,
+} from '@/lib/pos-data'
 import { CustomizationModal } from './customization-modal'
 
 interface MenuSectionProps {
@@ -12,30 +22,101 @@ interface MenuSectionProps {
   onAddToCart: (item: CartItem) => void
 }
 
-type Category = 'all' | 'pizza' | 'drinks' | 'sides' | 'desserts'
-
-const categories: { value: Category; label: string; icon: string }[] = [
-  { value: 'all', label: 'All', icon: '📋' },
-  { value: 'pizza', label: 'Pizza', icon: '🍕' },
-  { value: 'drinks', label: 'Drinks', icon: '🥤' },
-  { value: 'sides', label: 'Sides', icon: '🍟' },
-  { value: 'desserts', label: 'Desserts', icon: '🍰' },
-]
-
 export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
-  const [activeCategory, setActiveCategory] = useState<Category>('all')
+  const [activeCategory, setActiveCategory] = useState<string>('all')
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
+  const [categories, setCategories] = useState<MenuCategoryTab[]>(DEFAULT_MENU_CATEGORIES)
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const filteredItems = menuItems.filter((item) => {
-    const matchesCategory = activeCategory === 'all' || item.category === activeCategory
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesCategory && matchesSearch
-  })
+  useEffect(() => {
+    const fetchMenuAndCategories = async () => {
+      const session = getClientSession()
+      const token = session?.accessToken
+      const tokenType = session?.tokenType || 'Bearer'
+      if (!token) {
+        setLoading(false)
+        setLoadError('Missing cashier session. Please login again.')
+        return
+      }
 
-  const popularItems = menuItems.filter(item => item.popular)
+      try {
+        setLoading(true)
+        setLoadError(null)
+
+        const [categoriesRes, menuRes] = await Promise.all([
+          fetch('/api/categories', {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `${tokenType} ${token}`,
+            },
+            cache: 'no-store',
+          }),
+          fetch('/api/menu?only_available=true', {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `${tokenType} ${token}`,
+            },
+            cache: 'no-store',
+          }),
+        ])
+
+        if (!categoriesRes.ok || !menuRes.ok) {
+          const categoryError = categoriesRes.ok
+            ? null
+            : `${categoriesRes.status} ${categoriesRes.statusText || 'categories error'}`
+          const menuError = menuRes.ok ? null : `${menuRes.status} ${menuRes.statusText || 'menu error'}`
+          throw new Error(
+            `Failed to load menu data.${categoryError ? ` Categories: ${categoryError}.` : ''}${menuError ? ` Menu: ${menuError}.` : ''}`,
+          )
+        }
+
+        const categoriesPayload = (await categoriesRes.json()) as {
+          success?: boolean
+          data?: { categories?: ApiCategory[] }
+        }
+        const menuPayload = (await menuRes.json()) as {
+          success?: boolean
+          data?: { items?: ApiMenuItem[] }
+        }
+
+        const apiCategories = categoriesPayload?.data?.categories ?? []
+        const apiItems = menuPayload?.data?.items ?? []
+
+        setCategories(mapApiCategoriesToTabs(apiCategories))
+        setMenuItems(mapApiMenuItems(apiItems))
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unable to fetch menu data.'
+        setLoadError(message)
+        setCategories(DEFAULT_MENU_CATEGORIES)
+        setMenuItems([])
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    void fetchMenuAndCategories()
+  }, [])
+
+  const filteredItems = useMemo(
+    () =>
+      menuItems.filter((item) => {
+        const matchesCategory =
+          activeCategory === 'all' ||
+          item.category === activeCategory ||
+          item.categorySlug === activeCategory
+        const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase())
+        return matchesCategory && matchesSearch
+      }),
+    [activeCategory, menuItems, searchQuery],
+  )
+
+  const popularItems = useMemo(() => menuItems.filter((item) => item.popular), [menuItems])
 
   const handleQuickAdd = (item: MenuItem) => {
-    if (item.category === 'pizza') {
+    if (item.hasSizes) {
       setSelectedItem(item)
     } else {
       onAddToCart({
@@ -92,6 +173,8 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
           </div>
           <ScrollBar orientation="horizontal" />
         </ScrollArea>
+        {loading && <p className="mt-2 text-xs text-muted-foreground">Loading menu...</p>}
+        {!loading && loadError && <p className="mt-2 text-xs text-destructive">{loadError}</p>}
       </div>
 
       {/* Menu Grid */}

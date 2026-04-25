@@ -8,7 +8,12 @@ import { CartSection } from '@/components/pos/cart-section'
 import { PaymentModal } from '@/components/pos/payment-modal'
 import { OrderSuccessModal } from '@/components/pos/order-success-modal'
 import { DiscountModal } from '@/components/pos/discount-modal'
-import { clearClientAuth } from '@/lib/auth-dummy'
+import {
+  clearClientAuth,
+  getCashierDisplayName,
+  getCashierInitials,
+  getClientSession,
+} from '@/lib/auth'
 import { appendOrderFromCheckout } from '@/lib/order-history'
 import {
   type CartItem,
@@ -22,6 +27,15 @@ import {
   generateOrderNumber,
 } from '@/lib/pos-data'
 
+interface CreateOrderApiResponse {
+  success: boolean
+  data?: {
+    order_number?: string
+    total_amount?: number
+  }
+  message?: string
+}
+
 export function PosApp() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
@@ -31,6 +45,10 @@ export function PosApp() {
   const [showPayment, setShowPayment] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [showDiscount, setShowDiscount] = useState(false)
+  const session = getClientSession()
+  const cashierName = getCashierDisplayName(session?.employee)
+  const cashierInitials = getCashierInitials(session?.employee)
+  const cashierRole = session?.employee?.role?.name ?? 'Cashier'
   const [orderDetails, setOrderDetails] = useState<{
     orderNumber: string
     total: number
@@ -47,7 +65,7 @@ export function PosApp() {
 
   const addToCart = useCallback((item: CartItem) => {
     setCart((prev) => {
-      if (item.category === 'pizza') {
+      if (item.hasSizes) {
         return [...prev, item]
       }
 
@@ -108,7 +126,7 @@ export function PosApp() {
   }, [])
 
   const handlePaymentConfirm = useCallback(
-    (method: PaymentMethod, customer: CustomerDetails, cashReceived?: number) => {
+    async (method: PaymentMethod, customer: CustomerDetails, cashReceived?: number) => {
       const subtotal = cart.reduce((sum, item) => sum + calculateItemTotal(item), 0)
       const discountAmount =
         discount && discount.value > 0 ? calculateDiscountAmount(subtotal, discount) : 0
@@ -117,11 +135,69 @@ export function PosApp() {
       const total = afterDiscount + tax
 
       const change = cashReceived ? cashReceived - total : undefined
-      const orderNumber = generateOrderNumber()
+      const fallbackOrderNumber = generateOrderNumber()
+
+      const token = session?.accessToken
+      const tokenType = session?.tokenType || 'Bearer'
+      if (!token) {
+        alert('Please login again. Missing cashier session.')
+        return
+      }
+
+      const normalizedOrderType: 'dine_in' | 'takeaway' | 'delivery' =
+        orderType === 'dine-in' ? 'dine_in' : orderType
+
+      const payload = {
+        order_type: normalizedOrderType,
+        customer_name: customer.name,
+        customer_phone: customer.phone,
+        customer_email: '',
+        table_number: normalizedOrderType === 'dine_in' ? '1' : undefined,
+        delivery_address: customer.address,
+        delivery_instructions: customer.deliveryNotes,
+        items: cart.map((item) => ({
+          menu_item_id: Number(item.id),
+          size: item.size ?? 'medium',
+          quantity: item.quantity,
+          special_instructions: item.toppings?.length
+            ? `Toppings: ${item.toppings.join(', ')}`
+            : undefined,
+        })),
+        discount_code: discount?.name,
+        notes: '',
+        payment_method: method,
+      }
+
+      let apiOrderNumber = fallbackOrderNumber
+      let apiTotal = total
+      try {
+        const response = await fetch('/api/orders', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: `${tokenType} ${token}`,
+          },
+          body: JSON.stringify(payload),
+        })
+
+        const result = (await response.json()) as CreateOrderApiResponse
+        if (!response.ok || !result.success) {
+          const errorMessage = result.message?.trim() || 'Failed to create order.'
+          alert(errorMessage)
+          return
+        }
+
+        apiOrderNumber = result.data?.order_number ?? fallbackOrderNumber
+        apiTotal = result.data?.total_amount ?? total
+      } catch {
+        alert('Unable to create order right now. Please try again.')
+        return
+      }
 
       appendOrderFromCheckout({
-        orderNumber,
-        total,
+        orderNumber: apiOrderNumber,
+        total: apiTotal,
         paymentMethod: method,
         change,
         orderType,
@@ -130,8 +206,8 @@ export function PosApp() {
       })
 
       setOrderDetails({
-        orderNumber,
-        total,
+        orderNumber: apiOrderNumber,
+        total: apiTotal,
         paymentMethod: method,
         change,
         customer,
@@ -168,6 +244,9 @@ export function PosApp() {
         setSearchQuery={setSearchQuery}
         orderType={orderType}
         setOrderType={setOrderType}
+        cashierName={cashierName}
+        cashierInitials={cashierInitials}
+        cashierRole={cashierRole}
         onLogout={handleLogout}
       />
 

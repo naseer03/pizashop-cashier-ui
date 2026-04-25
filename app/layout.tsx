@@ -10,10 +10,13 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: 'Pizza POS - Cashier Dashboard',
   description: 'Fast and touch-friendly point of sale system for pizza shops',
-  generator: 'v0.app',
   icons: {
-    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
-    apple: '/icon.svg',
+    icon: [
+      { url: '/favicon.ico?v=4', type: 'image/x-icon' },
+      { url: '/apple-icon.png?v=4', type: 'image/png', sizes: '180x180' },
+    ],
+    shortcut: '/favicon.ico?v=4',
+    apple: '/apple-icon.png?v=4',
   },
 }
 

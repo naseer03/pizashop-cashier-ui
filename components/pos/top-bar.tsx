@@ -30,6 +30,9 @@ interface TopBarProps {
   setSearchQuery: (query: string) => void
   orderType: OrderType
   setOrderType: (type: OrderType) => void
+  cashierName?: string
+  cashierInitials?: string
+  cashierRole?: string
   onLogout?: () => void
 }
 
@@ -38,6 +41,9 @@ export function TopBar({
   setSearchQuery,
   orderType,
   setOrderType,
+  cashierName = 'Cashier',
+  cashierInitials = 'CA',
+  cashierRole = 'Cashier',
   onLogout,
 }: TopBarProps) {
   const [currentTime, setCurrentTime] = useState<string>('')
@@ -165,9 +171,9 @@ export function TopBar({
         {/* Cashier Info */}
         <div className="hidden lg:flex items-center gap-2 text-sm">
           <div className="size-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-semibold">
-            JD
+            {cashierInitials}
           </div>
-          <span className="text-muted-foreground">John Doe</span>
+          <span className="text-muted-foreground">{cashierName}</span>
         </div>
 
         <Button
@@ -245,11 +251,11 @@ export function TopBar({
               {/* Cashier */}
               <div className="flex items-center gap-3 pt-4 border-t border-border">
                 <div className="size-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-semibold">
-                  JD
+                  {cashierInitials}
                 </div>
                 <div className="flex-1">
-                  <p className="font-medium text-foreground">John Doe</p>
-                  <p className="text-xs text-muted-foreground">Cashier</p>
+                  <p className="font-medium text-foreground">{cashierName}</p>
+                  <p className="text-xs text-muted-foreground">{cashierRole}</p>
                 </div>
                 <Button
                   type="button"

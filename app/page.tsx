@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PosApp } from '@/components/pos/pos-app'
-import { isClientLoggedIn } from '@/lib/auth-dummy'
+import { isClientLoggedIn } from '@/lib/auth'
 
 export default function Home() {
   const router = useRouter()

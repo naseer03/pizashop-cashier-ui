@@ -34,7 +34,7 @@ const orderTypeLabels: Record<OrderType, string> = {
 const paymentLabels: Record<PaymentMethod, string> = {
   cash: 'Cash',
   card: 'Card',
-  upi: 'UPI',
+  online: 'Online',
 }
 
 export function OrdersHistorySheet({ open, onOpenChange }: OrdersHistorySheetProps) {

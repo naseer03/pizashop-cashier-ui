@@ -6,17 +6,11 @@ import { Pizza } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  DUMMY_USERNAME,
-  DUMMY_PASSWORD,
-  validateDummyCredentials,
-  setClientLoggedIn,
-  isClientLoggedIn,
-} from '@/lib/auth-dummy'
+import { isClientLoggedIn, loginCashier, setClientSession } from '@/lib/auth'
 
 export default function LoginPage() {
   const router = useRouter()
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -27,21 +21,22 @@ export default function LoginPage() {
     }
   }, [router])
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
     setSubmitting(true)
 
-    const ok = validateDummyCredentials(username.trim(), password)
-    if (!ok) {
-      setError('Invalid username or password.')
+    try {
+      const session = await loginCashier(email, password)
+      setClientSession(session)
+      router.replace('/')
+      router.refresh()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid email or password.'
+      setError(message)
+    } finally {
       setSubmitting(false)
-      return
     }
-
-    setClientLoggedIn()
-    router.replace('/')
-    router.refresh()
   }
 
   return (
@@ -60,14 +55,14 @@ export default function LoginPage() {
           className="space-y-5 rounded-xl border border-border bg-card p-6 shadow-sm"
         >
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="email">Email</Label>
             <Input
-              id="username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="h-10"
               required
             />
@@ -97,9 +92,7 @@ export default function LoginPage() {
           </Button>
 
           <p className="text-xs text-muted-foreground text-center border-t border-border pt-4">
-            Demo: username <span className="font-mono text-foreground">{DUMMY_USERNAME}</span>
-            {' · '}
-            password <span className="font-mono text-foreground">{DUMMY_PASSWORD}</span>
+            Sign in with your cashier account credentials.
           </p>
         </form>
       </div>

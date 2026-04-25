@@ -15,12 +15,6 @@ const nextConfig = {
     unoptimized: true,
   },
   ...(basePath ? { basePath } : {}),
-  async rewrites() {
-    return [
-      // Browsers request /favicon.ico by default; we only ship /icon.svg in /public.
-      { source: '/favicon.ico', destination: '/icon.svg' },
-    ]
-  },
 }
 
 export default nextConfig

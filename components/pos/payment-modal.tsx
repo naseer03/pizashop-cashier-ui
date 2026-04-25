@@ -26,7 +26,7 @@ interface PaymentModalProps {
 const paymentMethods: { value: PaymentMethod; label: string; icon: React.ReactNode }[] = [
   { value: 'cash', label: 'Cash', icon: <Banknote className="size-6" /> },
   { value: 'card', label: 'Card', icon: <CreditCard className="size-6" /> },
-  { value: 'upi', label: 'UPI', icon: <Smartphone className="size-6" /> },
+  { value: 'online', label: 'Online', icon: <Smartphone className="size-6" /> },
 ]
 
 const quickAmounts = [10, 20, 50, 100]
@@ -233,7 +233,7 @@ export function PaymentModal({ open, total, orderType, onClose, onConfirm }: Pay
             </div>
           )}
 
-          {/* Card/UPI Message */}
+          {/* Card/Online Message */}
           {selectedMethod !== 'cash' && (
             <div className="p-4 rounded-xl bg-secondary text-center">
               <p className="text-muted-foreground">

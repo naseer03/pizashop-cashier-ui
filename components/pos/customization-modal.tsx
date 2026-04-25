@@ -34,7 +34,8 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
 
   useEffect(() => {
     if (item) {
-      setSize('medium')
+      const defaultSize = item.sizes?.find((option) => option.isDefault)?.size
+      setSize(defaultSize ?? 'medium')
       setCrust('regular')
       setSelectedToppings([])
       setQuantity(1)
@@ -52,7 +53,9 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
   }
 
   const calculateTotal = () => {
-    let total = item.price + sizePrices[size]
+    const selectedSizePrice = item.sizes?.find((option) => option.size === size)?.price
+    const unitPrice = selectedSizePrice ?? item.price + sizePrices[size]
+    let total = unitPrice
     selectedToppings.forEach(toppingId => {
       const topping = extraToppings.find(t => t.id === toppingId)
       if (topping) total += topping.price
@@ -61,12 +64,14 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
   }
 
   const handleAdd = () => {
+    const selectedSizePrice = item.sizes?.find((option) => option.size === size)?.price
     onAdd({
       ...item,
       quantity,
       size,
       crust,
       toppings: selectedToppings,
+      unitPrice: selectedSizePrice,
     })
     onClose()
   }
@@ -100,9 +105,10 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
                   }`}
                 >
                   {s.charAt(0).toUpperCase() + s.slice(1)}
-                  {sizePrices[s] > 0 && (
-                    <span className="block text-xs opacity-75">+${sizePrices[s].toFixed(2)}</span>
-                  )}
+                  <span className="block text-xs opacity-75">
+                    $
+                    {(item.sizes?.find((option) => option.size === s)?.price ?? item.price + sizePrices[s]).toFixed(2)}
+                  </span>
                 </button>
               ))}
             </div>
