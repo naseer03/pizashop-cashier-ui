@@ -15,20 +15,23 @@ import {
 import { 
   type MenuItem, 
   type CartItem, 
-  extraToppings, 
-  sizePrices, 
-  crustTypes 
+  type ToppingOption,
+  type CrustOption,
+  defaultCrusts,
+  sizePrices
 } from '@/lib/pos-data'
 
 interface CustomizationModalProps {
   item: MenuItem | null
+  toppings?: ToppingOption[]
+  crusts?: CrustOption[]
   onClose: () => void
   onAdd: (item: CartItem) => void
 }
 
-export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalProps) {
+export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: CustomizationModalProps) {
   const [size, setSize] = useState<'small' | 'medium' | 'large'>('medium')
-  const [crust, setCrust] = useState<typeof crustTypes[number]>('regular')
+  const [crustId, setCrustId] = useState<string>(defaultCrusts[0].id)
   const [selectedToppings, setSelectedToppings] = useState<string[]>([])
   const [quantity, setQuantity] = useState(1)
 
@@ -36,13 +39,19 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
     if (item) {
       const defaultSize = item.sizes?.find((option) => option.isDefault)?.size
       setSize(defaultSize ?? 'medium')
-      setCrust('regular')
+      setCrustId((crusts && crusts.length > 0 ? crusts[0].id : defaultCrusts[0].id))
       setSelectedToppings([])
       setQuantity(1)
     }
-  }, [item])
+  }, [item, crusts])
 
   if (!item) return null
+
+  const hasSizeOptions = Boolean(item.sizes && item.sizes.length > 0)
+  // Only use provided toppings; if none are available from API, treat as no-toppings
+  // (avoids demo fallback IDs like "t1" that can't be sent to backend as numeric topping_id).
+  const availableToppings = toppings && toppings.length > 0 ? toppings : []
+  const availableCrusts = crusts && crusts.length > 0 ? crusts : defaultCrusts
 
   const toggleTopping = (toppingId: string) => {
     setSelectedToppings(prev => 
@@ -54,10 +63,14 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
 
   const calculateTotal = () => {
     const selectedSizePrice = item.sizes?.find((option) => option.size === size)?.price
-    const unitPrice = selectedSizePrice ?? item.price + sizePrices[size]
-    let total = unitPrice
+    const selectedCrust = availableCrusts.find((option) => option.id === crustId)
+    const selectedCrustPrice = selectedCrust?.price ?? 0
+    const unitPrice = hasSizeOptions
+      ? (selectedSizePrice ?? item.price + sizePrices[size])
+      : item.price
+    let total = unitPrice + selectedCrustPrice
     selectedToppings.forEach(toppingId => {
-      const topping = extraToppings.find(t => t.id === toppingId)
+      const topping = availableToppings.find(t => t.id === toppingId)
       if (topping) total += topping.price
     })
     return total * quantity
@@ -65,13 +78,20 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
 
   const handleAdd = () => {
     const selectedSizePrice = item.sizes?.find((option) => option.size === size)?.price
+    const selectedCrust = availableCrusts.find((option) => option.id === crustId)
+    const selectedCrustPrice = selectedCrust?.price ?? 0
+    const parsedCrustId = Number(crustId)
     onAdd({
       ...item,
       quantity,
-      size,
-      crust,
-      toppings: selectedToppings,
-      unitPrice: selectedSizePrice,
+      size: hasSizeOptions ? size : undefined,
+      crust: selectedCrust?.name,
+      crustId: Number.isFinite(parsedCrustId) ? parsedCrustId : undefined,
+      crustPrice: selectedCrustPrice,
+      toppings: selectedToppings
+        .map((id) => availableToppings.find((topping) => topping.id === id))
+        .filter((topping): topping is ToppingOption => Boolean(topping)),
+      unitPrice: hasSizeOptions ? selectedSizePrice : undefined,
     })
     onClose()
   }
@@ -90,45 +110,47 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4 pr-1">
-          {/* Size Selection */}
-          <div>
-            <h4 className="text-sm font-medium text-foreground mb-3">Size</h4>
-            <div className="grid grid-cols-3 gap-2">
-              {(['small', 'medium', 'large'] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSize(s)}
-                  className={`py-3 rounded-lg text-sm font-medium transition-all ${
-                    size === s
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-                  }`}
-                >
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
-                  <span className="block text-xs opacity-75">
-                    $
-                    {(item.sizes?.find((option) => option.size === s)?.price ?? item.price + sizePrices[s]).toFixed(2)}
-                  </span>
-                </button>
-              ))}
+          {hasSizeOptions && (
+            <div>
+              <h4 className="text-sm font-medium text-foreground mb-3">Size</h4>
+              <div className="grid grid-cols-3 gap-2">
+                {(['small', 'medium', 'large'] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSize(s)}
+                    className={`py-3 rounded-lg text-sm font-medium transition-all ${
+                      size === s
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                    }`}
+                  >
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                    <span className="block text-xs opacity-75">
+                      $
+                      {(item.sizes?.find((option) => option.size === s)?.price ?? item.price + sizePrices[s]).toFixed(2)}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Crust Selection */}
           <div>
             <h4 className="text-sm font-medium text-foreground mb-3">Crust</h4>
             <div className="grid grid-cols-2 gap-2">
-              {crustTypes.map((c) => (
+              {availableCrusts.map((c) => (
                 <button
-                  key={c}
-                  onClick={() => setCrust(c)}
+                  key={c.id}
+                  onClick={() => setCrustId(c.id)}
                   className={`py-2.5 rounded-lg text-sm font-medium transition-all ${
-                    crust === c
+                    crustId === c.id
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
                   }`}
                 >
-                  {c.charAt(0).toUpperCase() + c.slice(1)}
+                  {c.name}
+                  {c.price > 0 && <span className="block text-xs opacity-75">+${c.price.toFixed(2)}</span>}
                 </button>
               ))}
             </div>
@@ -138,7 +160,7 @@ export function CustomizationModal({ item, onClose, onAdd }: CustomizationModalP
           <div>
             <h4 className="text-sm font-medium text-foreground mb-3">Extra Toppings</h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {extraToppings.map((topping) => (
+              {availableToppings.map((topping) => (
                 <label
                   key={topping.id}
                   className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${

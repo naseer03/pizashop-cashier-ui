@@ -10,8 +10,7 @@ import {
   type Discount,
   calculateItemTotal, 
   calculateDiscountAmount,
-  TAX_RATE,
-  extraToppings 
+  TAX_RATE
 } from '@/lib/pos-data'
 
 interface CartSectionProps {
@@ -43,10 +42,9 @@ export function CartSection({
   const tax = afterDiscount * TAX_RATE
   const total = afterDiscount + tax
 
-  const getToppingNames = (toppingIds: string[]) => {
-    return toppingIds
-      .map(id => extraToppings.find(t => t.id === id)?.name)
-      .filter(Boolean)
+  const getToppingNames = (toppings: NonNullable<CartItem['toppings']>) => {
+    return toppings
+      .map((topping) => topping.name)
       .join(', ')
   }
 
@@ -86,7 +84,7 @@ export function CartSection({
           <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
             {cart.map((item, index) => (
               <div
-                key={`${item.id}-${item.size}-${item.crust}-${item.toppings?.join(',')}-${index}`}
+                key={`${item.id}-${item.size}-${item.crust}-${item.toppings?.map((topping) => topping.id).join(',')}-${index}`}
                 className="bg-secondary rounded-lg p-2.5 sm:p-3"
               >
                 <div className="flex items-start justify-between gap-2">

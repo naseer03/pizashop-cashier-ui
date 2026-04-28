@@ -21,8 +21,10 @@ export interface MenuItemSizeOption {
 export interface CartItem extends MenuItem {
   quantity: number
   size?: 'small' | 'medium' | 'large'
-  crust?: 'thin' | 'regular' | 'thick' | 'stuffed'
-  toppings?: string[]
+  crust?: string
+  crustId?: number
+  crustPrice?: number
+  toppings?: ToppingOption[]
   unitPrice?: number
 }
 
@@ -75,6 +77,39 @@ export interface ApiMenuItem {
   image_url: string | null
   is_available: boolean
   is_featured: boolean
+}
+
+export interface ApiTopping {
+  id: number
+  name: string
+  price: number
+  category?: {
+    id: number
+    name: string
+  }
+  is_available?: boolean
+  is_active?: boolean
+}
+
+export interface ToppingOption {
+  id: string
+  name: string
+  price: number
+  categoryId?: number
+  categoryName?: string
+}
+
+export interface ApiCrust {
+  id: number
+  name: string
+  price: number
+  is_available?: boolean
+}
+
+export interface CrustOption {
+  id: string
+  name: string
+  price: number
 }
 
 export const presetDiscounts: Discount[] = [
@@ -180,7 +215,7 @@ export function mapApiMenuItems(apiItems: ApiMenuItem[]): MenuItem[] {
         category: normalizedCategory,
         categorySlug: item.category.name.trim().toLowerCase().replace(/\s+/g, '-'),
         categoryId: item.category.id,
-        hasSizes: item.category.has_sizes,
+        hasSizes: mappedSizes.length > 0,
         sizes: mappedSizes,
         description: item.description,
         image: fallbackEmojiForCategory(item.category.name),
@@ -189,7 +224,7 @@ export function mapApiMenuItems(apiItems: ApiMenuItem[]): MenuItem[] {
     })
 }
 
-export const extraToppings = [
+export const extraToppings: ToppingOption[] = [
   { id: 't1', name: 'Extra Cheese', price: 2.00 },
   { id: 't2', name: 'Pepperoni', price: 1.50 },
   { id: 't3', name: 'Mushrooms', price: 1.00 },
@@ -200,15 +235,45 @@ export const extraToppings = [
   { id: 't8', name: 'Bacon', price: 1.75 },
 ]
 
+export function mapApiToppings(apiToppings: ApiTopping[]): ToppingOption[] {
+  const activeOrAll = apiToppings.filter(
+    (topping) => topping.is_available !== false && topping.is_active !== false,
+  )
+  return activeOrAll.map((topping) => ({
+    id: String(topping.id),
+    name: topping.name,
+    price: topping.price,
+    categoryId: topping.category?.id,
+    categoryName: topping.category?.name,
+  }))
+}
+
 export const sizePrices = {
   small: 0,
   medium: 3,
   large: 6,
 }
 
-export const crustTypes = ['thin', 'regular', 'thick', 'stuffed'] as const
+export const defaultCrusts: CrustOption[] = [
+  { id: 'thin', name: 'Thin Crust', price: 0 },
+  { id: 'regular', name: 'Regular', price: 0 },
+  { id: 'thick', name: 'Thick', price: 0 },
+  { id: 'stuffed', name: 'Stuffed', price: 2 },
+]
 
-export const TAX_RATE = 0.08
+export function mapApiCrusts(apiCrusts: ApiCrust[]): CrustOption[] {
+  const available = apiCrusts
+    .filter((crust) => crust.is_available !== false)
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  return available.map((crust) => ({
+    id: String(crust.id),
+    name: crust.name,
+    price: crust.price,
+  }))
+}
+
+export const TAX_RATE = 0.05
 
 export function calculateItemTotal(item: CartItem): number {
   let total = item.unitPrice ?? item.price
@@ -218,11 +283,14 @@ export function calculateItemTotal(item: CartItem): number {
   }
   
   if (item.toppings) {
-    const toppingsTotal = item.toppings.reduce((sum, toppingId) => {
-      const topping = extraToppings.find(t => t.id === toppingId)
-      return sum + (topping?.price || 0)
+    const toppingsTotal = item.toppings.reduce((sum, topping) => {
+      return sum + topping.price
     }, 0)
     total += toppingsTotal
+  }
+
+  if (item.crustPrice) {
+    total += item.crustPrice
   }
   
   return total * item.quantity

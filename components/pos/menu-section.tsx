@@ -6,14 +6,21 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { getClientSession } from '@/lib/auth'
 import {
+  defaultCrusts,
+  mapApiCrusts,
   DEFAULT_MENU_CATEGORIES,
   mapApiCategoriesToTabs,
   mapApiMenuItems,
+  mapApiToppings,
   type ApiCategory,
+  type ApiCrust,
   type ApiMenuItem,
+  type ApiTopping,
+  type CrustOption,
   type MenuCategoryTab,
   type MenuItem,
   type CartItem,
+  type ToppingOption,
 } from '@/lib/pos-data'
 import { CustomizationModal } from './customization-modal'
 
@@ -27,6 +34,8 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
   const [categories, setCategories] = useState<MenuCategoryTab[]>(DEFAULT_MENU_CATEGORIES)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [toppings, setToppings] = useState<ToppingOption[]>([])
+  const [crusts, setCrusts] = useState<CrustOption[]>(defaultCrusts)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -45,7 +54,7 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
         setLoading(true)
         setLoadError(null)
 
-        const [categoriesRes, menuRes] = await Promise.all([
+        const [categoriesRes, menuRes, toppingsRes, crustsRes] = await Promise.all([
           fetch('/api/categories', {
             headers: {
               Accept: 'application/json',
@@ -54,6 +63,20 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
             cache: 'no-store',
           }),
           fetch('/api/menu?only_available=true', {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `${tokenType} ${token}`,
+            },
+            cache: 'no-store',
+          }),
+          fetch('/api/toppings', {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `${tokenType} ${token}`,
+            },
+            cache: 'no-store',
+          }),
+          fetch('/api/crusts', {
             headers: {
               Accept: 'application/json',
               Authorization: `${tokenType} ${token}`,
@@ -80,18 +103,41 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
           success?: boolean
           data?: { items?: ApiMenuItem[] }
         }
-
         const apiCategories = categoriesPayload?.data?.categories ?? []
         const apiItems = menuPayload?.data?.items ?? []
+        let apiToppings: ApiTopping[] = []
+        if (toppingsRes.ok) {
+          const toppingsPayload = (await toppingsRes.json()) as
+            | { success?: boolean; data?: { toppings?: ApiTopping[] } }
+            | { toppings?: ApiTopping[] }
+            | ApiTopping[]
+          apiToppings = Array.isArray(toppingsPayload)
+            ? toppingsPayload
+            : toppingsPayload?.data?.toppings ?? toppingsPayload?.toppings ?? []
+        }
+        let apiCrusts: ApiCrust[] = []
+        if (crustsRes.ok) {
+          const crustsPayload = (await crustsRes.json()) as
+            | { success?: boolean; data?: { crusts?: ApiCrust[] } }
+            | { crusts?: ApiCrust[] }
+            | ApiCrust[]
+          apiCrusts = Array.isArray(crustsPayload)
+            ? crustsPayload
+            : crustsPayload?.data?.crusts ?? crustsPayload?.crusts ?? []
+        }
 
         setCategories(mapApiCategoriesToTabs(apiCategories))
         setMenuItems(mapApiMenuItems(apiItems))
+        setToppings(mapApiToppings(apiToppings))
+        setCrusts(apiCrusts.length > 0 ? mapApiCrusts(apiCrusts) : defaultCrusts)
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Unable to fetch menu data.'
         setLoadError(message)
         setCategories(DEFAULT_MENU_CATEGORIES)
         setMenuItems([])
+        setToppings([])
+        setCrusts(defaultCrusts)
       } finally {
         setLoading(false)
       }
@@ -115,8 +161,22 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
 
   const popularItems = useMemo(() => menuItems.filter((item) => item.popular), [menuItems])
 
+  const getToppingsForItem = (item: MenuItem): ToppingOption[] => {
+    const filtered = toppings.filter(
+      (topping) => !topping.categoryId || topping.categoryId === item.categoryId,
+    )
+    // If API toppings exist but category filtering yields none, show all toppings
+    // so we avoid falling back to demo `extraToppings` (non-numeric IDs).
+    return filtered.length > 0 ? filtered : toppings
+  }
+
   const handleQuickAdd = (item: MenuItem) => {
-    if (item.hasSizes) {
+    const itemToppings = getToppingsForItem(item)
+    const hasApiToppings = itemToppings.some((t) => Number.isFinite(Number(t.id)))
+    const hasApiCrusts = crusts.some((c) => Number.isFinite(Number(c.id)))
+    const shouldOpenCustomization = Boolean(item.hasSizes || hasApiToppings || hasApiCrusts)
+
+    if (shouldOpenCustomization) {
       setSelectedItem(item)
     } else {
       onAddToCart({
@@ -216,6 +276,8 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
       {/* Customization Modal */}
       <CustomizationModal
         item={selectedItem}
+        toppings={selectedItem ? getToppingsForItem(selectedItem) : toppings}
+        crusts={crusts}
         onClose={() => setSelectedItem(null)}
         onAdd={onAddToCart}
       />

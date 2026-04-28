@@ -31,6 +31,10 @@ interface CreateOrderApiResponse {
   success: boolean
   data?: {
     order_number?: string
+    subtotal?: number
+    tax_amount?: number
+    delivery_fee?: number
+    discount_amount?: number
     total_amount?: number
   }
   message?: string
@@ -133,8 +137,6 @@ export function PosApp() {
       const afterDiscount = subtotal - discountAmount
       const tax = afterDiscount * TAX_RATE
       const total = afterDiscount + tax
-
-      const change = cashReceived ? cashReceived - total : undefined
       const fallbackOrderNumber = generateOrderNumber()
 
       const token = session?.accessToken
@@ -155,21 +157,35 @@ export function PosApp() {
         table_number: normalizedOrderType === 'dine_in' ? '1' : undefined,
         delivery_address: customer.address,
         delivery_instructions: customer.deliveryNotes,
-        items: cart.map((item) => ({
-          menu_item_id: Number(item.id),
-          size: item.size ?? 'medium',
-          quantity: item.quantity,
-          special_instructions: item.toppings?.length
-            ? `Toppings: ${item.toppings.join(', ')}`
-            : undefined,
-        })),
+        items: cart.map((item) => {
+          const toppings = (item.toppings ?? [])
+            .map((topping) => {
+              const toppingId = Number(topping.id)
+              if (!Number.isFinite(toppingId)) return null
+              return { topping_id: toppingId, quantity: 1 }
+            })
+            .filter((topping): topping is { topping_id: number; quantity: number } => topping !== null)
+
+          return {
+            menu_item_id: Number(item.id),
+            size: item.hasSizes ? (item.size ?? 'medium') : undefined,
+            crust_id: item.crustId,
+            toppings: toppings.length > 0 ? toppings : undefined,
+            quantity: item.quantity,
+            special_instructions: item.toppings?.length
+              ? `Toppings: ${item.toppings.map((topping) => topping.name).join(', ')}`
+              : undefined,
+          }
+        }),
         discount_code: discount?.name,
         notes: '',
         payment_method: method,
       }
 
       let apiOrderNumber = fallbackOrderNumber
-      let apiTotal = total
+      // Keep cashier-facing amount consistent with the confirmed checkout total.
+      let finalDisplayTotal = total
+      let finalChange: number | undefined = undefined
       try {
         const response = await fetch('/api/orders', {
           method: 'POST',
@@ -183,23 +199,27 @@ export function PosApp() {
 
         const result = (await response.json()) as CreateOrderApiResponse
         if (!response.ok || !result.success) {
-          const errorMessage = result.message?.trim() || 'Failed to create order.'
-          alert(errorMessage)
+          const baseMessage = result.message?.trim() || response.statusText || 'Failed to create order.'
+          alert(`Create order failed (${response.status}): ${baseMessage}`)
           return
         }
 
         apiOrderNumber = result.data?.order_number ?? fallbackOrderNumber
-        apiTotal = result.data?.total_amount ?? total
+        if (typeof result.data?.total_amount === 'number' && Number.isFinite(result.data.total_amount)) {
+          finalDisplayTotal = result.data.total_amount
+        }
       } catch {
         alert('Unable to create order right now. Please try again.')
         return
       }
 
+      finalChange = cashReceived !== undefined ? cashReceived - finalDisplayTotal : undefined
+
       appendOrderFromCheckout({
         orderNumber: apiOrderNumber,
-        total: apiTotal,
+        total: finalDisplayTotal,
         paymentMethod: method,
-        change,
+        change: finalChange,
         orderType,
         customer,
         cart,
@@ -207,9 +227,9 @@ export function PosApp() {
 
       setOrderDetails({
         orderNumber: apiOrderNumber,
-        total: apiTotal,
+        total: finalDisplayTotal,
         paymentMethod: method,
-        change,
+        change: finalChange,
         customer,
         orderType,
       })
