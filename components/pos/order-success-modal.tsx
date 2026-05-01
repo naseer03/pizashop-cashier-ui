@@ -20,7 +20,10 @@ interface OrderSuccessModalProps {
   orderType: OrderType
   customer: CustomerDetails
   onClose: () => void
-  onPrintReceipt: () => void
+  onPrintReceipt?: () => void
+  variant?: 'payment' | 'kot'
+  kotTableNumber?: string | null
+  kotItems?: Array<{ name: string; quantity: number }>
 }
 
 export function OrderSuccessModal({
@@ -33,6 +36,9 @@ export function OrderSuccessModal({
   customer,
   onClose,
   onPrintReceipt,
+  variant = 'payment',
+  kotTableNumber,
+  kotItems = [],
 }: OrderSuccessModalProps) {
   const paymentLabels: Record<PaymentMethod, string> = {
     cash: 'Cash',
@@ -45,6 +51,7 @@ export function OrderSuccessModal({
     takeaway: 'Takeaway',
     delivery: 'Delivery',
   }
+  const isKotVariant = variant === 'kot'
 
   return (
     <Dialog open={open} onOpenChange={() => onClose()}>
@@ -66,8 +73,12 @@ export function OrderSuccessModal({
 
           {/* Success Message */}
           <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-foreground">Payment Successful!</h2>
-            <p className="text-muted-foreground">Order has been placed successfully</p>
+            <h2 className="text-2xl font-bold text-foreground">
+              {isKotVariant ? 'KOT Printed Successfully!' : 'Payment Successful!'}
+            </h2>
+            <p className="text-muted-foreground">
+              {isKotVariant ? 'Kitchen order ticket is ready.' : 'Order has been placed successfully'}
+            </p>
           </div>
 
           {/* Order Details */}
@@ -76,33 +87,65 @@ export function OrderSuccessModal({
               <span className="text-muted-foreground shrink-0">Order type</span>
               <Badge variant="outline">{orderTypeLabels[orderType]}</Badge>
             </div>
-            <div className="space-y-1 border-t border-border pt-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Customer</p>
-              <p className="font-medium text-foreground">{customer.name}</p>
-              <p className="text-sm text-muted-foreground">{customer.phone}</p>
-              {orderType === 'delivery' && customer.address && (
-                <p className="text-sm text-foreground mt-2 whitespace-pre-wrap">{customer.address}</p>
-              )}
-              {orderType === 'delivery' && customer.deliveryNotes && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  <span className="font-medium text-foreground">Notes: </span>
-                  {customer.deliveryNotes}
-                </p>
-              )}
-            </div>
+            {!isKotVariant && (
+              <div className="space-y-1 border-t border-border pt-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Customer</p>
+                <p className="font-medium text-foreground">{customer.name}</p>
+                <p className="text-sm text-muted-foreground">{customer.phone}</p>
+                {orderType === 'delivery' && customer.address && (
+                  <p className="text-sm text-foreground mt-2 whitespace-pre-wrap">{customer.address}</p>
+                )}
+                {orderType === 'delivery' && customer.deliveryNotes && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <span className="font-medium text-foreground">Notes: </span>
+                    {customer.deliveryNotes}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex justify-between items-center border-t border-border pt-3">
               <span className="text-muted-foreground">Order Number</span>
               <span className="font-mono font-bold text-foreground">{orderNumber}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Amount Paid</span>
+            {isKotVariant && orderType === 'dine-in' && kotTableNumber && (
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Table Number</span>
+                <Badge variant="outline">{kotTableNumber}</Badge>
+              </div>
+            )}
+            {isKotVariant && (
+              <div className="space-y-2 border-t border-border pt-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Items</p>
+                {kotItems.length > 0 ? (
+                  <div className="space-y-1">
+                    {kotItems.map((item, index) => (
+                      <div
+                        key={`${item.name}-${index}`}
+                        className="flex items-center justify-between text-sm text-foreground"
+                      >
+                        <span className="truncate pr-3">{item.name}</span>
+                        <span className="text-muted-foreground">x{item.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No items available</p>
+                )}
+              </div>
+            )}
+            {/* <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">
+                {isKotVariant ? 'Order Amount' : 'Amount Paid'}
+              </span>
               <span className="font-bold text-primary">${total.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Payment Method</span>
-              <Badge variant="outline">{paymentLabels[paymentMethod]}</Badge>
-            </div>
-            {paymentMethod === 'cash' && change !== undefined && change > 0 && (
+            </div> */}
+            {!isKotVariant && (
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Payment Method</span>
+                <Badge variant="outline">{paymentLabels[paymentMethod]}</Badge>
+              </div>
+            )}
+            {!isKotVariant && paymentMethod === 'cash' && change !== undefined && change > 0 && (
               <div className="flex justify-between items-center pt-2 border-t border-border">
                 <span className="text-muted-foreground">Change Given</span>
                 <span className="font-bold text-success">${change.toFixed(2)}</span>
@@ -113,19 +156,27 @@ export function OrderSuccessModal({
           {/* Order Status */}
           <div className="flex items-center justify-center gap-2 text-accent">
             <ChefHat className="size-5" />
-            <span className="font-medium">Status: Preparing</span>
+            <span className="font-medium">
+              Status: {isKotVariant ? 'Sent to Kitchen' : 'Preparing'}
+            </span>
           </div>
 
           {/* Actions */}
-          <div className="flex gap-3 pt-2">
-            <Button variant="outline" onClick={onPrintReceipt} className="flex-1 gap-2">
-              <Printer className="size-4" />
-              Print Receipt
+          {isKotVariant ? (
+            <Button onClick={onClose} className="w-full">
+              Continue Order
             </Button>
-            <Button onClick={onClose} className="flex-1">
-              New Order
-            </Button>
-          </div>
+          ) : (
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" onClick={onPrintReceipt} className="flex-1 gap-2">
+                <Printer className="size-4" />
+                Print Receipt
+              </Button>
+              <Button onClick={onClose} className="flex-1">
+                New Order
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { TopBar } from '@/components/pos/top-bar'
 import { MenuSection } from '@/components/pos/menu-section'
@@ -15,16 +15,18 @@ import {
   getClientSession,
 } from '@/lib/auth'
 import { appendOrderFromCheckout } from '@/lib/order-history'
+import { buildKotReceiptRequestBody, mapCartItemsToOrderLines } from '@/lib/cashier-order-payload'
+import { printKotReceiptFromResponse } from '@/lib/kot-receipt-print'
 import {
   type CartItem,
   type CustomerDetails,
   type OrderType,
   type PaymentMethod,
   type Discount,
-  TAX_RATE,
   calculateItemTotal,
   calculateDiscountAmount,
   generateOrderNumber,
+  parseTaxRateDecimalFromCashierTaxApi,
 } from '@/lib/pos-data'
 
 interface CreateOrderApiResponse {
@@ -40,6 +42,24 @@ interface CreateOrderApiResponse {
   message?: string
 }
 
+interface KotApiItem {
+  name?: string
+  quantity?: number
+}
+
+interface KotApiData {
+  order_number?: string
+  order_type?: 'dine_in' | 'takeaway' | 'delivery'
+  table_number?: string | null
+  items?: KotApiItem[]
+  total_amount?: number
+}
+
+interface KotApiResponse {
+  success?: boolean
+  data?: KotApiData
+}
+
 export function PosApp() {
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
@@ -48,6 +68,7 @@ export function PosApp() {
   const [discount, setDiscount] = useState<Discount | null>(null)
   const [showPayment, setShowPayment] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [showKotSuccess, setShowKotSuccess] = useState(false)
   const [showDiscount, setShowDiscount] = useState(false)
   const session = getClientSession()
   const cashierName = getCashierDisplayName(session?.employee)
@@ -61,6 +82,54 @@ export function PosApp() {
     customer: CustomerDetails
     orderType: OrderType
   } | null>(null)
+  const [kotSuccessDetails, setKotSuccessDetails] = useState<{
+    orderNumber: string
+    total: number
+    customer: CustomerDetails
+    orderType: OrderType
+    tableNumber?: string | null
+    items: Array<{ name: string; quantity: number }>
+  } | null>(null)
+  const [taxRateDecimal, setTaxRateDecimal] = useState(0)
+  const [taxLoading, setTaxLoading] = useState(true)
+  const [kotPrinted, setKotPrinted] = useState(false)
+  const [kotPrinting, setKotPrinting] = useState(false)
+
+  useEffect(() => {
+    const loadTax = async () => {
+      const token = session?.accessToken
+      const tokenType = session?.tokenType || 'Bearer'
+      if (!token) {
+        setTaxRateDecimal(0)
+        setTaxLoading(false)
+        return
+      }
+
+      setTaxLoading(true)
+      try {
+        const res = await fetch('/api/tax', {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `${tokenType} ${token}`,
+          },
+          cache: 'no-store',
+        })
+        if (!res.ok) {
+          setTaxRateDecimal(0)
+          return
+        }
+        const json: unknown = await res.json()
+        const parsed = parseTaxRateDecimalFromCashierTaxApi(json)
+        setTaxRateDecimal(parsed ?? 0)
+      } catch {
+        setTaxRateDecimal(0)
+      } finally {
+        setTaxLoading(false)
+      }
+    }
+
+    void loadTax()
+  }, [session?.accessToken, session?.tokenType])
 
   const handleLogout = useCallback(() => {
     clearClientAuth()
@@ -110,16 +179,105 @@ export function PosApp() {
   const clearCart = useCallback(() => {
     setCart([])
     setDiscount(null)
+    setKotPrinted(false)
+    setKotPrinting(false)
   }, [])
+
+  const handleKotPrintedChange = useCallback(
+    async (printed: boolean) => {
+      if (!printed) {
+        setKotPrinted(false)
+        return
+      }
+      if (cart.length === 0) return
+
+      const token = session?.accessToken
+      const tokenType = session?.tokenType || 'Bearer'
+      if (!token) {
+        alert('Please login again. Missing cashier session.')
+        return
+      }
+
+      setKotPrinting(true)
+      try {
+        const body = buildKotReceiptRequestBody({ cart, orderType, discount })
+        const response = await fetch('/api/orders/kot', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json, application/pdf, text/html;q=0.9,*/*;q=0.8',
+            'Content-Type': 'application/json',
+            Authorization: `${tokenType} ${token}`,
+          },
+          body: JSON.stringify(body),
+        })
+        const responseForMeta = response.clone()
+        await printKotReceiptFromResponse(response)
+        setKotPrinted(true)
+
+        let apiOrderNumber: string | undefined
+        let apiTableNumber: string | null | undefined
+        let apiOrderType: OrderType | undefined
+        let apiItems: Array<{ name: string; quantity: number }> = []
+        let apiTotal: number | undefined
+
+        const metaContentType = responseForMeta.headers.get('content-type') ?? ''
+        if (metaContentType.includes('application/json')) {
+          try {
+            const json = (await responseForMeta.json()) as KotApiResponse
+            const data = json?.data
+            apiOrderNumber = data?.order_number
+            apiTableNumber = data?.table_number
+            if (data?.order_type === 'dine_in') apiOrderType = 'dine-in'
+            if (data?.order_type === 'takeaway') apiOrderType = 'takeaway'
+            if (data?.order_type === 'delivery') apiOrderType = 'delivery'
+            apiItems =
+              data?.items?.map((item) => ({
+                name: item.name || 'Item',
+                quantity: Number.isFinite(item.quantity) ? Number(item.quantity) : 1,
+              })) ?? []
+            if (typeof data?.total_amount === 'number' && Number.isFinite(data.total_amount)) {
+              apiTotal = data.total_amount
+            }
+          } catch {
+            // ignore parsing errors and keep UI fallbacks
+          }
+        }
+
+        const subtotal = cart.reduce((sum, item) => sum + calculateItemTotal(item), 0)
+        const discountAmount =
+          discount && discount.value > 0 ? calculateDiscountAmount(subtotal, discount) : 0
+        const afterDiscount = subtotal - discountAmount
+        const tax =
+          afterDiscount * (Number.isFinite(taxRateDecimal) && taxRateDecimal >= 0 ? taxRateDecimal : 0)
+        const total = apiTotal ?? afterDiscount + tax
+        setKotSuccessDetails({
+          orderNumber: apiOrderNumber ?? `KOT-${Date.now().toString(36).toUpperCase()}`,
+          total,
+          customer: { name: 'Walk-in', phone: '0000000000' },
+          orderType: apiOrderType ?? orderType,
+          tableNumber: apiTableNumber,
+          items: apiItems,
+        })
+        setShowKotSuccess(true)
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Unable to load KOT receipt.'
+        alert(message)
+        setKotPrinted(false)
+      } finally {
+        setKotPrinting(false)
+      }
+    },
+    [cart, discount, orderType, session?.accessToken, session?.tokenType, taxRateDecimal],
+  )
 
   const holdOrder = useCallback(() => {
     alert('Order held! (Demo only)')
   }, [])
 
   const handleCheckout = useCallback(() => {
-    if (cart.length === 0) return
+    if (cart.length === 0 || taxLoading) return
     setShowPayment(true)
-  }, [cart.length])
+  }, [cart.length, taxLoading])
 
   const handleApplyDiscount = useCallback((newDiscount: Discount) => {
     if (newDiscount.value === 0) {
@@ -135,7 +293,7 @@ export function PosApp() {
       const discountAmount =
         discount && discount.value > 0 ? calculateDiscountAmount(subtotal, discount) : 0
       const afterDiscount = subtotal - discountAmount
-      const tax = afterDiscount * TAX_RATE
+      const tax = afterDiscount * (Number.isFinite(taxRateDecimal) && taxRateDecimal >= 0 ? taxRateDecimal : 0)
       const total = afterDiscount + tax
       const fallbackOrderNumber = generateOrderNumber()
 
@@ -151,32 +309,14 @@ export function PosApp() {
 
       const payload = {
         order_type: normalizedOrderType,
+        kot_printed: kotPrinted,
         customer_name: customer.name,
         customer_phone: customer.phone,
         customer_email: '',
         table_number: normalizedOrderType === 'dine_in' ? '1' : undefined,
         delivery_address: customer.address,
         delivery_instructions: customer.deliveryNotes,
-        items: cart.map((item) => {
-          const toppings = (item.toppings ?? [])
-            .map((topping) => {
-              const toppingId = Number(topping.id)
-              if (!Number.isFinite(toppingId)) return null
-              return { topping_id: toppingId, quantity: 1 }
-            })
-            .filter((topping): topping is { topping_id: number; quantity: number } => topping !== null)
-
-          return {
-            menu_item_id: Number(item.id),
-            size: item.hasSizes ? (item.size ?? 'medium') : undefined,
-            crust_id: item.crustId,
-            toppings: toppings.length > 0 ? toppings : undefined,
-            quantity: item.quantity,
-            special_instructions: item.toppings?.length
-              ? `Toppings: ${item.toppings.map((topping) => topping.name).join(', ')}`
-              : undefined,
-          }
-        }),
+        items: mapCartItemsToOrderLines(cart),
         discount_code: discount?.name,
         notes: '',
         payment_method: method,
@@ -237,7 +377,7 @@ export function PosApp() {
       setShowPayment(false)
       setShowSuccess(true)
     },
-    [cart, discount, orderType],
+    [cart, discount, orderType, session?.accessToken, session?.tokenType, taxRateDecimal, kotPrinted],
   )
 
   const handleSuccessClose = useCallback(() => {
@@ -246,6 +386,11 @@ export function PosApp() {
     clearCart()
   }, [clearCart])
 
+  const handleKotSuccessClose = useCallback(() => {
+    setShowKotSuccess(false)
+    setKotSuccessDetails(null)
+  }, [])
+
   const handlePrintReceipt = useCallback(() => {
     window.print()
   }, [])
@@ -253,8 +398,9 @@ export function PosApp() {
   const subtotal = cart.reduce((sum, item) => sum + calculateItemTotal(item), 0)
   const discountAmount =
     discount && discount.value > 0 ? calculateDiscountAmount(subtotal, discount) : 0
+  const safeTaxRate = Number.isFinite(taxRateDecimal) && taxRateDecimal >= 0 ? taxRateDecimal : 0
   const afterDiscount = subtotal - discountAmount
-  const tax = afterDiscount * TAX_RATE
+  const tax = taxLoading ? 0 : afterDiscount * safeTaxRate
   const total = afterDiscount + tax
 
   return (
@@ -276,6 +422,11 @@ export function PosApp() {
           cart={cart}
           orderType={orderType}
           discount={discount}
+          taxRateDecimal={safeTaxRate}
+          taxLoading={taxLoading}
+          kotPrinted={kotPrinted}
+          kotPrinting={kotPrinting}
+          onKotPrintedChange={handleKotPrintedChange}
           onUpdateQuantity={updateQuantity}
           onRemoveItem={removeItem}
           onClearCart={clearCart}
@@ -311,6 +462,20 @@ export function PosApp() {
           customer={orderDetails.customer}
           onClose={handleSuccessClose}
           onPrintReceipt={handlePrintReceipt}
+        />
+      )}
+      {kotSuccessDetails && (
+        <OrderSuccessModal
+          open={showKotSuccess}
+          orderNumber={kotSuccessDetails.orderNumber}
+          total={kotSuccessDetails.total}
+          paymentMethod="cash"
+          orderType={kotSuccessDetails.orderType}
+          customer={kotSuccessDetails.customer}
+          kotTableNumber={kotSuccessDetails.tableNumber}
+          kotItems={kotSuccessDetails.items}
+          onClose={handleKotSuccessClose}
+          variant="kot"
         />
       )}
     </div>

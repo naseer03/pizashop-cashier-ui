@@ -12,13 +12,12 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { 
-  type MenuItem, 
-  type CartItem, 
+import {
+  type MenuItem,
+  type CartItem,
   type ToppingOption,
   type CrustOption,
-  defaultCrusts,
-  sizePrices
+  sizePrices,
 } from '@/lib/pos-data'
 
 interface CustomizationModalProps {
@@ -31,7 +30,7 @@ interface CustomizationModalProps {
 
 export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: CustomizationModalProps) {
   const [size, setSize] = useState<'small' | 'medium' | 'large'>('medium')
-  const [crustId, setCrustId] = useState<string>(defaultCrusts[0].id)
+  const [crustId, setCrustId] = useState<string>('')
   const [selectedToppings, setSelectedToppings] = useState<string[]>([])
   const [quantity, setQuantity] = useState(1)
 
@@ -39,7 +38,7 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
     if (item) {
       const defaultSize = item.sizes?.find((option) => option.isDefault)?.size
       setSize(defaultSize ?? 'medium')
-      setCrustId((crusts && crusts.length > 0 ? crusts[0].id : defaultCrusts[0].id))
+      setCrustId(crusts && crusts.length > 0 ? crusts[0].id : '')
       setSelectedToppings([])
       setQuantity(1)
     }
@@ -51,7 +50,7 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
   // Only use provided toppings; if none are available from API, treat as no-toppings
   // (avoids demo fallback IDs like "t1" that can't be sent to backend as numeric topping_id).
   const availableToppings = toppings && toppings.length > 0 ? toppings : []
-  const availableCrusts = crusts && crusts.length > 0 ? crusts : defaultCrusts
+  const availableCrusts = crusts && crusts.length > 0 ? crusts : []
 
   const toggleTopping = (toppingId: string) => {
     setSelectedToppings(prev => 
@@ -86,8 +85,8 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
       quantity,
       size: hasSizeOptions ? size : undefined,
       crust: selectedCrust?.name,
-      crustId: Number.isFinite(parsedCrustId) ? parsedCrustId : undefined,
-      crustPrice: selectedCrustPrice,
+      crustId: Number.isFinite(parsedCrustId) && crustId !== '' ? parsedCrustId : undefined,
+      crustPrice: selectedCrust ? selectedCrustPrice : undefined,
       toppings: selectedToppings
         .map((id) => availableToppings.find((topping) => topping.id === id))
         .filter((topping): topping is ToppingOption => Boolean(topping)),
@@ -135,26 +134,28 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
             </div>
           )}
 
-          {/* Crust Selection */}
-          <div>
-            <h4 className="text-sm font-medium text-foreground mb-3">Crust</h4>
-            <div className="grid grid-cols-2 gap-2">
-              {availableCrusts.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setCrustId(c.id)}
-                  className={`py-2.5 rounded-lg text-sm font-medium transition-all ${
-                    crustId === c.id
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
-                  }`}
-                >
-                  {c.name}
-                  {c.price > 0 && <span className="block text-xs opacity-75">+${c.price.toFixed(2)}</span>}
-                </button>
-              ))}
+          {/* Crust Selection (API-only; hidden when none for this item category) */}
+          {availableCrusts.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-foreground mb-3">Crust</h4>
+              <div className="grid grid-cols-2 gap-2">
+                {availableCrusts.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setCrustId(c.id)}
+                    className={`py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      crustId === c.id
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                    }`}
+                  >
+                    {c.name}
+                    {c.price > 0 && <span className="block text-xs opacity-75">+${c.price.toFixed(2)}</span>}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Extra Toppings */}
           <div>

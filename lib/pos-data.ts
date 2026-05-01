@@ -103,7 +103,14 @@ export interface ApiCrust {
   id: number
   name: string
   price: number
+  /** Some API responses use a flat category id */
+  category_id?: number
+  category?: {
+    id: number
+    name: string
+  } | null
   is_available?: boolean
+  sort_order?: number
 }
 
 export interface CrustOption {
@@ -224,17 +231,6 @@ export function mapApiMenuItems(apiItems: ApiMenuItem[]): MenuItem[] {
     })
 }
 
-export const extraToppings: ToppingOption[] = [
-  { id: 't1', name: 'Extra Cheese', price: 2.00 },
-  { id: 't2', name: 'Pepperoni', price: 1.50 },
-  { id: 't3', name: 'Mushrooms', price: 1.00 },
-  { id: 't4', name: 'Olives', price: 1.00 },
-  { id: 't5', name: 'Onions', price: 0.75 },
-  { id: 't6', name: 'Bell Peppers', price: 1.00 },
-  { id: 't7', name: 'Jalapeños', price: 0.75 },
-  { id: 't8', name: 'Bacon', price: 1.75 },
-]
-
 export function mapApiToppings(apiToppings: ApiTopping[]): ToppingOption[] {
   const activeOrAll = apiToppings.filter(
     (topping) => topping.is_available !== false && topping.is_active !== false,
@@ -254,17 +250,23 @@ export const sizePrices = {
   large: 6,
 }
 
-export const defaultCrusts: CrustOption[] = [
-  { id: 'thin', name: 'Thin Crust', price: 0 },
-  { id: 'regular', name: 'Regular', price: 0 },
-  { id: 'thick', name: 'Thick', price: 0 },
-  { id: 'stuffed', name: 'Stuffed', price: 2 },
-]
+function crustCategoryId(crust: ApiCrust): number | undefined {
+  return crust.category?.id ?? crust.category_id
+}
 
-export function mapApiCrusts(apiCrusts: ApiCrust[]): CrustOption[] {
+/** Only crusts whose category id matches the menu item category (API-only; no fallback list). */
+export function mapApiCrusts(apiCrusts: ApiCrust[], selectedCategoryId: number | undefined): CrustOption[] {
+  if (selectedCategoryId == null) {
+    return []
+  }
+
   const available = apiCrusts
     .filter((crust) => crust.is_available !== false)
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .filter((crust) => {
+      const cid = crustCategoryId(crust)
+      return cid != null && cid === selectedCategoryId
+    })
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
 
   return available.map((crust) => ({
     id: String(crust.id),
@@ -273,7 +275,73 @@ export function mapApiCrusts(apiCrusts: ApiCrust[]): CrustOption[] {
   }))
 }
 
-export const TAX_RATE = 0.05
+/** Decimal multiplier applied to taxable amount after discount (e.g. 0.05 → 5%). */
+function num(v: unknown): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null
+  return v
+}
+
+function rateFromTaxObject(obj: Record<string, unknown>): number | null {
+  const dec =
+    num(obj.tax_rate_decimal) ?? num(obj.rate_decimal) ?? num(obj.decimal_rate)
+  if (dec !== null && dec >= 0 && dec <= 1) return dec
+
+  const namedPercent =
+    num(obj.tax_percentage) ?? num(obj.percentage) ?? num(obj.tax_percent) ?? num(obj.percent)
+  if (namedPercent !== null && namedPercent >= 0) {
+    return namedPercent > 1 ? namedPercent / 100 : namedPercent
+  }
+
+  const ambiguous = num(obj.tax_rate) ?? num(obj.rate)
+  if (ambiguous !== null && ambiguous >= 0) {
+    return ambiguous > 1 ? ambiguous / 100 : ambiguous
+  }
+
+  return null
+}
+
+/** Parses cashier `/v1/cashier/tax` JSON into a decimal tax rate for display and checkout. */
+export function parseTaxRateDecimalFromCashierTaxApi(payload: unknown): number | null {
+  if (payload === null || typeof payload !== 'object') return null
+
+  const root = payload as Record<string, unknown>
+  const rawData = root.data
+
+  let candidates: Record<string, unknown>[] = []
+
+  if (Array.isArray(rawData)) {
+    candidates = rawData.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+  } else if (rawData && typeof rawData === 'object' && !Array.isArray(rawData)) {
+    const d = rawData as Record<string, unknown>
+    if (Array.isArray(d.tax) || Array.isArray(d.taxes)) {
+      const list = (d.tax ?? d.taxes) as unknown[]
+      candidates = list.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+    } else if (Array.isArray(d.tax_rates)) {
+      const list = d.tax_rates as unknown[]
+      candidates = list.filter((entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object')
+    } else {
+      candidates = [d]
+    }
+  } else {
+    candidates = [root]
+  }
+
+  const sorted = [...candidates].sort((a, b) => {
+    const aOrd = typeof a.sort_order === 'number' ? a.sort_order : 0
+    const bOrd = typeof b.sort_order === 'number' ? b.sort_order : 0
+    return aOrd - bOrd
+  })
+
+  const rates: number[] = []
+  for (const obj of sorted) {
+    if (obj.is_active === false) continue
+    const parsed = rateFromTaxObject(obj)
+    if (parsed !== null && parsed >= 0) rates.push(parsed)
+  }
+
+  if (rates.length === 0) return null
+  return rates.reduce((a, b) => a + b, 0)
+}
 
 export function calculateItemTotal(item: CartItem): number {
   let total = item.unitPrice ?? item.price

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const CRUSTS_API_URL =
-  'https://pizzaapi.lefruit.in/v1/cashier/crusts?only_available=true'
+const TAX_API_URL = 'https://pizzaapi.lefruit.in/v1/cashier/tax'
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,7 +12,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const response = await fetch(CRUSTS_API_URL, {
+    const response = await fetch(TAX_API_URL, {
       cache: 'no-store',
       headers: {
         Accept: 'application/json',
@@ -23,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     if (!response.ok) {
       return NextResponse.json(
-        { success: false, message: 'Failed to fetch crusts' },
+        { success: false, message: 'Failed to fetch tax' },
         { status: response.status },
       )
     }
@@ -32,7 +31,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data)
   } catch {
     return NextResponse.json(
-      { success: false, message: 'Unable to fetch crusts' },
+      { success: false, message: 'Unable to fetch tax' },
       { status: 500 },
     )
   }

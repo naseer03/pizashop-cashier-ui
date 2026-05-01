@@ -1,22 +1,27 @@
 'use client'
 
-import { Minus, Plus, Trash2, ShoppingCart, Pause, CreditCard, Tag } from 'lucide-react'
+import { Minus, Plus, Trash2, ShoppingCart, Pause, CreditCard, Tag, Printer, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { 
-  type CartItem, 
+import {
+  type CartItem,
   type OrderType,
   type Discount,
-  calculateItemTotal, 
+  calculateItemTotal,
   calculateDiscountAmount,
-  TAX_RATE
 } from '@/lib/pos-data'
 
 interface CartSectionProps {
   cart: CartItem[]
   orderType: OrderType
   discount: Discount | null
+  /** Decimal tax rate after discount (e.g. 0.05); from cashier tax API */
+  taxRateDecimal: number
+  taxLoading: boolean
+  kotPrinted: boolean
+  kotPrinting: boolean
+  onKotPrintedChange: (printed: boolean) => void | Promise<void>
   onUpdateQuantity: (id: string, delta: number) => void
   onRemoveItem: (id: string) => void
   onClearCart: () => void
@@ -29,6 +34,11 @@ export function CartSection({
   cart,
   orderType,
   discount,
+  taxRateDecimal,
+  taxLoading,
+  kotPrinted,
+  kotPrinting,
+  onKotPrintedChange,
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
@@ -39,8 +49,16 @@ export function CartSection({
   const subtotal = cart.reduce((sum, item) => sum + calculateItemTotal(item), 0)
   const discountAmount = discount && discount.value > 0 ? calculateDiscountAmount(subtotal, discount) : 0
   const afterDiscount = subtotal - discountAmount
-  const tax = afterDiscount * TAX_RATE
+  const safeTaxRate = Number.isFinite(taxRateDecimal) && taxRateDecimal >= 0 ? taxRateDecimal : 0
+  const tax = taxLoading ? 0 : afterDiscount * safeTaxRate
   const total = afterDiscount + tax
+  const taxPercentLabel =
+    safeTaxRate > 0
+      ? `${(safeTaxRate * 100).toLocaleString(undefined, {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2,
+        })}%`
+      : '0%'
 
   const getToppingNames = (toppings: NonNullable<CartItem['toppings']>) => {
     return toppings
@@ -189,7 +207,7 @@ export function CartSection({
             )}
             
             <div className="flex justify-between text-muted-foreground">
-              <span>Tax ({(TAX_RATE * 100).toFixed(0)}%)</span>
+              <span>{taxLoading ? 'Tax (loading…)' : `Tax (${taxPercentLabel})`}</span>
               <span>${tax.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-base sm:text-lg font-bold text-foreground pt-2 border-t border-border">
@@ -199,20 +217,48 @@ export function CartSection({
           </div>
 
           {/* Action Buttons */}
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" size="sm" onClick={onHoldOrder} className="gap-1.5 h-9">
-              <Pause className="size-3.5" />
-              Hold
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+            <Button variant="outline" size="sm" onClick={onHoldOrder} className="gap-1 h-9 px-1 sm:gap-1.5 sm:px-2">
+              <Pause className="size-3.5 shrink-0" />
+              <span className="truncate text-[11px] sm:text-xs">Hold</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={onClearCart} className="gap-1.5 h-9 text-destructive hover:text-destructive">
-              <Trash2 className="size-3.5" />
-              Clear
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onClearCart}
+              className="gap-1 h-9 px-1 sm:gap-1.5 sm:px-2 text-destructive hover:text-destructive"
+            >
+              <Trash2 className="size-3.5 shrink-0" />
+              <span className="truncate text-[11px] sm:text-xs">Clear</span>
+            </Button>
+            <Button
+              type="button"
+              variant={kotPrinted ? 'default' : 'outline'}
+              size="sm"
+              title="Fetch KOT receipt from kitchen API and mark as printed"
+              disabled={kotPrinting}
+              onClick={() => void onKotPrintedChange(!kotPrinted)}
+              className="gap-1 h-9 px-1 sm:gap-1.5 sm:px-2"
+            >
+              {kotPrinting ? (
+                <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
+              ) : (
+                <Printer className="size-3.5 shrink-0" aria-hidden />
+              )}
+              <span className="truncate text-[11px] sm:text-xs leading-tight text-center">
+                KOT
+                <span className="hidden sm:inline"> printed</span>
+              </span>
             </Button>
           </div>
           
-          <Button onClick={onCheckout} className="w-full h-10 sm:h-12 text-sm sm:text-base gap-2">
+          <Button
+            onClick={onCheckout}
+            disabled={taxLoading}
+            className="w-full h-10 sm:h-12 text-sm sm:text-base gap-2"
+          >
             <CreditCard className="size-4 sm:size-5" />
-            Pay ${total.toFixed(2)}
+            {taxLoading ? 'Loading tax…' : `Pay $${total.toFixed(2)}`}
           </Button>
         </div>
       )}

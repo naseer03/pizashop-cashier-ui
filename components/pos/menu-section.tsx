@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { getClientSession } from '@/lib/auth'
 import {
-  defaultCrusts,
   mapApiCrusts,
   DEFAULT_MENU_CATEGORIES,
   mapApiCategoriesToTabs,
@@ -16,7 +15,6 @@ import {
   type ApiCrust,
   type ApiMenuItem,
   type ApiTopping,
-  type CrustOption,
   type MenuCategoryTab,
   type MenuItem,
   type CartItem,
@@ -35,7 +33,7 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
   const [categories, setCategories] = useState<MenuCategoryTab[]>(DEFAULT_MENU_CATEGORIES)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [toppings, setToppings] = useState<ToppingOption[]>([])
-  const [crusts, setCrusts] = useState<CrustOption[]>(defaultCrusts)
+  const [apiCrusts, setApiCrusts] = useState<ApiCrust[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
@@ -115,13 +113,13 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
             ? toppingsPayload
             : toppingsPayload?.data?.toppings ?? toppingsPayload?.toppings ?? []
         }
-        let apiCrusts: ApiCrust[] = []
+        let loadedCrusts: ApiCrust[] = []
         if (crustsRes.ok) {
           const crustsPayload = (await crustsRes.json()) as
             | { success?: boolean; data?: { crusts?: ApiCrust[] } }
             | { crusts?: ApiCrust[] }
             | ApiCrust[]
-          apiCrusts = Array.isArray(crustsPayload)
+          loadedCrusts = Array.isArray(crustsPayload)
             ? crustsPayload
             : crustsPayload?.data?.crusts ?? crustsPayload?.crusts ?? []
         }
@@ -129,7 +127,7 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
         setCategories(mapApiCategoriesToTabs(apiCategories))
         setMenuItems(mapApiMenuItems(apiItems))
         setToppings(mapApiToppings(apiToppings))
-        setCrusts(apiCrusts.length > 0 ? mapApiCrusts(apiCrusts) : defaultCrusts)
+        setApiCrusts(loadedCrusts)
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Unable to fetch menu data.'
@@ -137,7 +135,7 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
         setCategories(DEFAULT_MENU_CATEGORIES)
         setMenuItems([])
         setToppings([])
-        setCrusts(defaultCrusts)
+        setApiCrusts([])
       } finally {
         setLoading(false)
       }
@@ -145,6 +143,11 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
 
     void fetchMenuAndCategories()
   }, [])
+
+  const crustsForSelectedItem = useMemo(
+    () => mapApiCrusts(apiCrusts, selectedItem?.categoryId),
+    [apiCrusts, selectedItem?.categoryId],
+  )
 
   const filteredItems = useMemo(
     () =>
@@ -165,15 +168,15 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
     const filtered = toppings.filter(
       (topping) => !topping.categoryId || topping.categoryId === item.categoryId,
     )
-    // If API toppings exist but category filtering yields none, show all toppings
-    // so we avoid falling back to demo `extraToppings` (non-numeric IDs).
-    return filtered.length > 0 ? filtered : toppings
+    if (filtered.length > 0) return filtered
+    return toppings
   }
 
   const handleQuickAdd = (item: MenuItem) => {
     const itemToppings = getToppingsForItem(item)
     const hasApiToppings = itemToppings.some((t) => Number.isFinite(Number(t.id)))
-    const hasApiCrusts = crusts.some((c) => Number.isFinite(Number(c.id)))
+    const crustsForItem = mapApiCrusts(apiCrusts, item.categoryId)
+    const hasApiCrusts = crustsForItem.length > 0
     const shouldOpenCustomization = Boolean(item.hasSizes || hasApiToppings || hasApiCrusts)
 
     if (shouldOpenCustomization) {
@@ -200,7 +203,7 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
               <button
                 key={item.id}
                 onClick={() => handleQuickAdd(item)}
-                className="flex-shrink-0 px-2.5 sm:px-3 py-2 rounded-lg bg-secondary hover:bg-secondary/80 border border-border transition-all flex items-center gap-2"
+                className="shrink-0 px-2.5 sm:px-3 py-2 rounded-lg bg-secondary hover:bg-secondary/80 border border-border transition-all flex items-center gap-2"
               >
                 <span className="text-base sm:text-lg">{item.image}</span>
                 <span className="text-xs sm:text-sm font-medium text-foreground whitespace-nowrap">{item.name}</span>
@@ -277,7 +280,7 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
       <CustomizationModal
         item={selectedItem}
         toppings={selectedItem ? getToppingsForItem(selectedItem) : toppings}
-        crusts={crusts}
+        crusts={crustsForSelectedItem}
         onClose={() => setSelectedItem(null)}
         onAdd={onAddToCart}
       />
