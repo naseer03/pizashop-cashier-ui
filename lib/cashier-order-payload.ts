@@ -18,7 +18,7 @@ export function mapCartItemsToOrderLines(cart: CartItem[]) {
 
     return {
       menu_item_id: Number(item.id),
-      size: item.hasSizes ? (item.size ?? 'medium') : undefined,
+      size: item.hasSizes ? (item.size ?? item.sizes?.[0]?.size) : undefined,
       crust_id: item.crustId,
       toppings: toppings.length > 0 ? toppings : undefined,
       quantity: item.quantity,

@@ -13,14 +13,15 @@ export interface MenuItem {
 }
 
 export interface MenuItemSizeOption {
-  size: 'small' | 'medium' | 'large'
+  /** Normalized API size key (e.g. `small`, `extra_large`) */
+  size: string
   price: number
   isDefault?: boolean
 }
 
 export interface CartItem extends MenuItem {
   quantity: number
-  size?: 'small' | 'medium' | 'large'
+  size?: string
   crust?: string
   crustId?: number
   crustPrice?: number
@@ -180,6 +181,36 @@ function toTitleCase(name: string): string {
     .join(' ')
 }
 
+export function normalizeMenuSizeKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[\s-]+/g, '_')
+}
+
+export function formatMenuSizeLabel(sizeKey: string): string {
+  return sizeKey
+    .replace(/_/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ')
+}
+
+const DISPLAY_SIZE_ORDER: Record<string, number> = {
+  small: 0,
+  medium: 1,
+  large: 2,
+  extra_large: 3,
+  xlarge: 3,
+}
+
+function sortMenuSizesForDisplay(sizes: MenuItemSizeOption[]): MenuItemSizeOption[] {
+  return [...sizes].sort((a, b) => {
+    const ra = DISPLAY_SIZE_ORDER[a.size] ?? 50
+    const rb = DISPLAY_SIZE_ORDER[b.size] ?? 50
+    if (ra !== rb) return ra - rb
+    return a.size.localeCompare(b.size)
+  })
+}
+
 export function mapApiCategoriesToTabs(apiCategories: ApiCategory[]): MenuCategoryTab[] {
   const active = apiCategories
     .filter((cat) => cat.is_active)
@@ -198,19 +229,19 @@ export function mapApiMenuItems(apiItems: ApiMenuItem[]): MenuItem[] {
     .filter((item) => item.is_available)
     .map((item) => {
       const normalizedCategory = normalizeCategory(item.category.name)
-      const mappedSizes = item.sizes
-        .map((size): MenuItemSizeOption | null => {
-          const normalizedSize = size.size.trim().toLowerCase()
-          if (normalizedSize !== 'small' && normalizedSize !== 'medium' && normalizedSize !== 'large') {
-            return null
-          }
-          return {
-            size: normalizedSize,
-            price: size.price,
-            isDefault: size.is_default,
-          }
-        })
-        .filter((size): size is MenuItemSizeOption => size !== null)
+      const mappedSizes = sortMenuSizesForDisplay(
+        item.sizes
+          .map((size): MenuItemSizeOption | null => {
+            const normalizedSize = normalizeMenuSizeKey(size.size)
+            if (!normalizedSize) return null
+            return {
+              size: normalizedSize,
+              price: size.price,
+              isDefault: size.is_default,
+            }
+          })
+          .filter((size): size is MenuItemSizeOption => size !== null),
+      )
 
       const defaultSize = mappedSizes.find((size) => size.isDefault) ?? mappedSizes[0]
       const price = defaultSize?.price ?? item.base_price
@@ -242,12 +273,6 @@ export function mapApiToppings(apiToppings: ApiTopping[]): ToppingOption[] {
     categoryId: topping.category?.id,
     categoryName: topping.category?.name,
   }))
-}
-
-export const sizePrices = {
-  small: 0,
-  medium: 3,
-  large: 6,
 }
 
 function crustCategoryId(crust: ApiCrust): number | undefined {
@@ -344,10 +369,14 @@ export function parseTaxRateDecimalFromCashierTaxApi(payload: unknown): number |
 }
 
 export function calculateItemTotal(item: CartItem): number {
-  let total = item.unitPrice ?? item.price
-  
-  if (item.size && !item.unitPrice) {
-    total += sizePrices[item.size]
+  let total: number
+  if (item.unitPrice != null) {
+    total = item.unitPrice
+  } else if (item.size && item.sizes && item.sizes.length > 0) {
+    const match = item.sizes.find((s) => s.size === item.size)
+    total = match?.price ?? item.price
+  } else {
+    total = item.price
   }
   
   if (item.toppings) {

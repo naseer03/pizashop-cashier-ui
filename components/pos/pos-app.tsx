@@ -6,7 +6,7 @@ import { TopBar } from '@/components/pos/top-bar'
 import { MenuSection } from '@/components/pos/menu-section'
 import { CartSection } from '@/components/pos/cart-section'
 import { PaymentModal } from '@/components/pos/payment-modal'
-import { OrderSuccessModal } from '@/components/pos/order-success-modal'
+import { OrderSuccessModal, type KotLineItemDisplay } from '@/components/pos/order-success-modal'
 import { DiscountModal } from '@/components/pos/discount-modal'
 import {
   clearClientAuth,
@@ -45,9 +45,13 @@ interface CreateOrderApiResponse {
 interface KotApiItem {
   name?: string
   quantity?: number
+  size?: string | null
+  crust?: string | { id?: number; name?: string } | null
+  toppings?: Array<{ id?: number; name?: string; price?: number }>
 }
 
 interface KotApiData {
+  id?: number
   order_number?: string
   order_type?: 'dine_in' | 'takeaway' | 'delivery'
   table_number?: string | null
@@ -84,11 +88,12 @@ export function PosApp() {
   } | null>(null)
   const [kotSuccessDetails, setKotSuccessDetails] = useState<{
     orderNumber: string
+    orderId?: number
     total: number
     customer: CustomerDetails
     orderType: OrderType
     tableNumber?: string | null
-    items: Array<{ name: string; quantity: number }>
+    items: KotLineItemDisplay[]
   } | null>(null)
   const [taxRateDecimal, setTaxRateDecimal] = useState(0)
   const [taxLoading, setTaxLoading] = useState(true)
@@ -215,9 +220,10 @@ export function PosApp() {
         setKotPrinted(true)
 
         let apiOrderNumber: string | undefined
+        let apiOrderId: number | undefined
         let apiTableNumber: string | null | undefined
         let apiOrderType: OrderType | undefined
-        let apiItems: Array<{ name: string; quantity: number }> = []
+        let apiItems: KotLineItemDisplay[] = []
         let apiTotal: number | undefined
 
         const metaContentType = responseForMeta.headers.get('content-type') ?? ''
@@ -226,15 +232,37 @@ export function PosApp() {
             const json = (await responseForMeta.json()) as KotApiResponse
             const data = json?.data
             apiOrderNumber = data?.order_number
+            if (typeof data?.id === 'number' && Number.isFinite(data.id)) {
+              apiOrderId = data.id
+            }
             apiTableNumber = data?.table_number
             if (data?.order_type === 'dine_in') apiOrderType = 'dine-in'
             if (data?.order_type === 'takeaway') apiOrderType = 'takeaway'
             if (data?.order_type === 'delivery') apiOrderType = 'delivery'
             apiItems =
-              data?.items?.map((item) => ({
-                name: item.name || 'Item',
-                quantity: Number.isFinite(item.quantity) ? Number(item.quantity) : 1,
-              })) ?? []
+              data?.items?.map((item) => {
+                const rawSize = item.size
+                const sizeStr =
+                  rawSize != null && String(rawSize).trim() !== '' ? String(rawSize).trim() : null
+                const c = item.crust
+                let crustName: string | null = null
+                if (typeof c === 'string' && c.trim()) {
+                  crustName = c.trim()
+                } else if (c && typeof c === 'object' && typeof c.name === 'string' && c.name.trim()) {
+                  crustName = c.name.trim()
+                }
+                const toppingNames =
+                  item.toppings
+                    ?.map((t) => (typeof t.name === 'string' ? t.name.trim() : ''))
+                    .filter((n) => n.length > 0) ?? []
+                return {
+                  name: item.name || 'Item',
+                  quantity: Number.isFinite(item.quantity) ? Number(item.quantity) : 1,
+                  size: sizeStr,
+                  crust: crustName && crustName.length > 0 ? crustName : null,
+                  toppings: toppingNames,
+                }
+              }) ?? []
             if (typeof data?.total_amount === 'number' && Number.isFinite(data.total_amount)) {
               apiTotal = data.total_amount
             }
@@ -252,6 +280,7 @@ export function PosApp() {
         const total = apiTotal ?? afterDiscount + tax
         setKotSuccessDetails({
           orderNumber: apiOrderNumber ?? `KOT-${Date.now().toString(36).toUpperCase()}`,
+          orderId: apiOrderId,
           total,
           customer: { name: 'Walk-in', phone: '0000000000' },
           orderType: apiOrderType ?? orderType,
@@ -473,6 +502,7 @@ export function PosApp() {
           orderType={kotSuccessDetails.orderType}
           customer={kotSuccessDetails.customer}
           kotTableNumber={kotSuccessDetails.tableNumber}
+          kotOrderId={kotSuccessDetails.orderId}
           kotItems={kotSuccessDetails.items}
           onClose={handleKotSuccessClose}
           variant="kot"

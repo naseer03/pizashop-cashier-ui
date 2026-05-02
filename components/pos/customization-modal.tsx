@@ -17,7 +17,7 @@ import {
   type CartItem,
   type ToppingOption,
   type CrustOption,
-  sizePrices,
+  formatMenuSizeLabel,
 } from '@/lib/pos-data'
 
 interface CustomizationModalProps {
@@ -29,7 +29,7 @@ interface CustomizationModalProps {
 }
 
 export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: CustomizationModalProps) {
-  const [size, setSize] = useState<'small' | 'medium' | 'large'>('medium')
+  const [size, setSize] = useState<string>('')
   const [crustId, setCrustId] = useState<string>('')
   const [selectedToppings, setSelectedToppings] = useState<string[]>([])
   const [quantity, setQuantity] = useState(1)
@@ -37,7 +37,8 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
   useEffect(() => {
     if (item) {
       const defaultSize = item.sizes?.find((option) => option.isDefault)?.size
-      setSize(defaultSize ?? 'medium')
+      const firstSize = item.sizes?.[0]?.size
+      setSize(defaultSize ?? firstSize ?? '')
       setCrustId(crusts && crusts.length > 0 ? crusts[0].id : '')
       setSelectedToppings([])
       setQuantity(1)
@@ -61,12 +62,11 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
   }
 
   const calculateTotal = () => {
-    const selectedSizePrice = item.sizes?.find((option) => option.size === size)?.price
+    const effectiveSize = hasSizeOptions ? (size || item.sizes?.[0]?.size || '') : ''
+    const selectedSizePrice = item.sizes?.find((option) => option.size === effectiveSize)?.price
     const selectedCrust = availableCrusts.find((option) => option.id === crustId)
     const selectedCrustPrice = selectedCrust?.price ?? 0
-    const unitPrice = hasSizeOptions
-      ? (selectedSizePrice ?? item.price + sizePrices[size])
-      : item.price
+    const unitPrice = hasSizeOptions ? (selectedSizePrice ?? item.price) : item.price
     let total = unitPrice + selectedCrustPrice
     selectedToppings.forEach(toppingId => {
       const topping = availableToppings.find(t => t.id === toppingId)
@@ -76,21 +76,22 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
   }
 
   const handleAdd = () => {
-    const selectedSizePrice = item.sizes?.find((option) => option.size === size)?.price
+    const resolvedSize = hasSizeOptions ? (size || item.sizes?.[0]?.size || '') : ''
+    const selectedSizePrice = item.sizes?.find((option) => option.size === resolvedSize)?.price
     const selectedCrust = availableCrusts.find((option) => option.id === crustId)
     const selectedCrustPrice = selectedCrust?.price ?? 0
     const parsedCrustId = Number(crustId)
     onAdd({
       ...item,
       quantity,
-      size: hasSizeOptions ? size : undefined,
+      size: hasSizeOptions ? resolvedSize : undefined,
       crust: selectedCrust?.name,
       crustId: Number.isFinite(parsedCrustId) && crustId !== '' ? parsedCrustId : undefined,
       crustPrice: selectedCrust ? selectedCrustPrice : undefined,
       toppings: selectedToppings
         .map((id) => availableToppings.find((topping) => topping.id === id))
         .filter((topping): topping is ToppingOption => Boolean(topping)),
-      unitPrice: hasSizeOptions ? selectedSizePrice : undefined,
+      unitPrice: hasSizeOptions ? (selectedSizePrice ?? item.price) : undefined,
     })
     onClose()
   }
@@ -112,22 +113,20 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
           {hasSizeOptions && (
             <div>
               <h4 className="text-sm font-medium text-foreground mb-3">Size</h4>
-              <div className="grid grid-cols-3 gap-2">
-                {(['small', 'medium', 'large'] as const).map((s) => (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                {(item.sizes ?? []).map((option) => (
                   <button
-                    key={s}
-                    onClick={() => setSize(s)}
+                    key={option.size}
+                    type="button"
+                    onClick={() => setSize(option.size)}
                     className={`py-3 rounded-lg text-sm font-medium transition-all ${
-                      size === s
+                      size === option.size
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
                     }`}
                   >
-                    {s.charAt(0).toUpperCase() + s.slice(1)}
-                    <span className="block text-xs opacity-75">
-                      $
-                      {(item.sizes?.find((option) => option.size === s)?.price ?? item.price + sizePrices[s]).toFixed(2)}
-                    </span>
+                    {formatMenuSizeLabel(option.size)}
+                    <span className="block text-xs opacity-75">${option.price.toFixed(2)}</span>
                   </button>
                 ))}
               </div>

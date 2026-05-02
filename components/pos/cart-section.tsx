@@ -10,6 +10,7 @@ import {
   type Discount,
   calculateItemTotal,
   calculateDiscountAmount,
+  formatMenuSizeLabel,
 } from '@/lib/pos-data'
 
 interface CartSectionProps {
@@ -117,7 +118,7 @@ export function CartSection({
                       <div className="flex gap-1 mt-1 flex-wrap">
                         {item.size && (
                           <Badge variant="outline" className="text-xs capitalize px-1.5 py-0">
-                            {item.size}
+                            {formatMenuSizeLabel(item.size)}
                           </Badge>
                         )}
                         {item.crust && (

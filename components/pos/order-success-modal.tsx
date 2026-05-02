@@ -9,7 +9,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import type { CustomerDetails, OrderType, PaymentMethod } from '@/lib/pos-data'
+import { formatMenuSizeLabel, type CustomerDetails, type OrderType, type PaymentMethod } from '@/lib/pos-data'
+
+export interface KotLineItemDisplay {
+  name: string
+  quantity: number
+  size: string | null
+  crust: string | null
+  toppings: string[]
+}
 
 interface OrderSuccessModalProps {
   open: boolean
@@ -22,8 +30,9 @@ interface OrderSuccessModalProps {
   onClose: () => void
   onPrintReceipt?: () => void
   variant?: 'payment' | 'kot'
+  kotOrderId?: number
   kotTableNumber?: string | null
-  kotItems?: Array<{ name: string; quantity: number }>
+  kotItems?: KotLineItemDisplay[]
 }
 
 export function OrderSuccessModal({
@@ -37,6 +46,7 @@ export function OrderSuccessModal({
   onClose,
   onPrintReceipt,
   variant = 'payment',
+  kotOrderId,
   kotTableNumber,
   kotItems = [],
 }: OrderSuccessModalProps) {
@@ -107,6 +117,12 @@ export function OrderSuccessModal({
               <span className="text-muted-foreground">Order Number</span>
               <span className="font-mono font-bold text-foreground">{orderNumber}</span>
             </div>
+            {isKotVariant && kotOrderId != null && (
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Order ID</span>
+                <span className="font-mono font-semibold text-foreground">{kotOrderId}</span>
+              </div>
+            )}
             {isKotVariant && orderType === 'dine-in' && kotTableNumber && (
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Table Number</span>
@@ -117,14 +133,34 @@ export function OrderSuccessModal({
               <div className="space-y-2 border-t border-border pt-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Items</p>
                 {kotItems.length > 0 ? (
-                  <div className="space-y-1">
+                  <div className="space-y-3">
                     {kotItems.map((item, index) => (
                       <div
                         key={`${item.name}-${index}`}
-                        className="flex items-center justify-between text-sm text-foreground"
+                        className="rounded-lg border border-border bg-background/60 p-2.5 text-left"
                       >
-                        <span className="truncate pr-3">{item.name}</span>
-                        <span className="text-muted-foreground">x{item.quantity}</span>
+                        <div className="flex items-start justify-between gap-2 text-sm font-medium text-foreground">
+                          <span className="min-w-0 flex-1 break-words">{item.name}</span>
+                          <span className="shrink-0 text-muted-foreground">×{item.quantity}</span>
+                        </div>
+                        {item.size != null && String(item.size).trim() !== '' && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">Size: </span>
+                            {formatMenuSizeLabel(String(item.size))}
+                          </p>
+                        )}
+                        {item.crust != null && String(item.crust).trim() !== '' && (
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">Crust: </span>
+                            {item.crust}
+                          </p>
+                        )}
+                        {item.toppings.length > 0 && (
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">Toppings: </span>
+                            {item.toppings.join(', ')}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
