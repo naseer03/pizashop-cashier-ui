@@ -232,10 +232,10 @@ export function MenuSection({ searchQuery, onAddToCart, ensureCustomerThen }: Me
     <div className="flex-1 flex flex-col overflow-hidden min-h-0">
       {/* Quick Popular Items */}
       <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-border shrink-0">
-        <div className="flex items-center gap-2 mb-2">
+        {/* <div className="flex items-center gap-2 mb-2">
           <Star className="size-4 text-accent" />
           <span className="text-sm font-medium text-foreground">Quick Add</span>
-        </div>
+        </div> */}
         <ScrollArea className="w-full min-w-0 max-w-full">
           <div className="flex gap-2 pb-1">
             {popularItems.map((item) => (
