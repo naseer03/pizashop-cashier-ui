@@ -1,11 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CreditCard, Banknote, Smartphone, CheckCircle2, User, Phone, MapPin } from 'lucide-react'
+import { CreditCard, Banknote, Smartphone, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
@@ -13,14 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import type { CustomerDetails, OrderType, PaymentMethod } from '@/lib/pos-data'
+import type { PaymentMethod } from '@/lib/pos-data'
 
 interface PaymentModalProps {
   open: boolean
   total: number
-  orderType: OrderType
   onClose: () => void
-  onConfirm: (method: PaymentMethod, customer: CustomerDetails, cashReceived?: number) => void
+  onConfirm: (method: PaymentMethod, cashReceived?: number) => void
 }
 
 const paymentMethods: { value: PaymentMethod; label: string; icon: React.ReactNode }[] = [
@@ -31,20 +27,12 @@ const paymentMethods: { value: PaymentMethod; label: string; icon: React.ReactNo
 
 const quickAmounts = [10, 20, 50, 100]
 
-export function PaymentModal({ open, total, orderType, onClose, onConfirm }: PaymentModalProps) {
+export function PaymentModal({ open, total, onClose, onConfirm }: PaymentModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('cash')
   const [cashReceived, setCashReceived] = useState('')
-  const [customerName, setCustomerName] = useState('')
-  const [customerPhone, setCustomerPhone] = useState('')
-  const [deliveryAddress, setDeliveryAddress] = useState('')
-  const [deliveryNotes, setDeliveryNotes] = useState('')
 
   useEffect(() => {
     if (!open) return
-    setCustomerName('')
-    setCustomerPhone('')
-    setDeliveryAddress('')
-    setDeliveryNotes('')
     setCashReceived('')
     setSelectedMethod('cash')
   }, [open])
@@ -52,25 +40,8 @@ export function PaymentModal({ open, total, orderType, onClose, onConfirm }: Pay
   const cashAmount = parseFloat(cashReceived) || 0
   const change = cashAmount - total
 
-  const isDelivery = orderType === 'delivery'
-  const customerDetailsValid =
-    customerName.trim().length > 0 &&
-    customerPhone.trim().length > 0 &&
-    (!isDelivery || deliveryAddress.trim().length > 0)
-
   const handleConfirm = () => {
-    if (!customerDetailsValid) return
-    const customer: CustomerDetails = {
-      name: customerName.trim(),
-      phone: customerPhone.trim(),
-      ...(isDelivery
-        ? {
-            address: deliveryAddress.trim(),
-            ...(deliveryNotes.trim() ? { deliveryNotes: deliveryNotes.trim() } : {}),
-          }
-        : {}),
-    }
-    onConfirm(selectedMethod, customer, selectedMethod === 'cash' ? cashAmount : undefined)
+    onConfirm(selectedMethod, selectedMethod === 'cash' ? cashAmount : undefined)
   }
 
   const handleQuickAmount = (amount: number) => {
@@ -85,74 +56,11 @@ export function PaymentModal({ open, total, orderType, onClose, onConfirm }: Pay
         <DialogHeader className="shrink-0">
           <DialogTitle className="text-center">Payment</DialogTitle>
           <DialogDescription className="sr-only">
-            Enter customer details, then select payment method and complete the transaction
+            Select payment method and complete the transaction
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto py-4">
-          {/* Customer */}
-          <div className="space-y-4 rounded-xl border border-border bg-card/50 p-4">
-            <h3 className="text-sm font-semibold text-foreground">Customer</h3>
-            <div className="space-y-2">
-              <Label htmlFor="customer-name" className="flex items-center gap-2">
-                <User className="size-3.5 text-muted-foreground" />
-                Name
-              </Label>
-              <Input
-                id="customer-name"
-                autoComplete="name"
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Full name"
-                className="h-10"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="customer-phone" className="flex items-center gap-2">
-                <Phone className="size-3.5 text-muted-foreground" />
-                Phone
-              </Label>
-              <Input
-                id="customer-phone"
-                type="tel"
-                autoComplete="tel"
-                inputMode="tel"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                placeholder="Phone number"
-                className="h-10"
-              />
-            </div>
-            {isDelivery && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="delivery-address" className="flex items-center gap-2">
-                    <MapPin className="size-3.5 text-muted-foreground" />
-                    Delivery address
-                  </Label>
-                  <Textarea
-                    id="delivery-address"
-                    value={deliveryAddress}
-                    onChange={(e) => setDeliveryAddress(e.target.value)}
-                    placeholder="Street, unit, city, ZIP"
-                    className="min-h-[88px] resize-y"
-                    autoComplete="street-address"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="delivery-notes">Delivery notes (optional)</Label>
-                  <Input
-                    id="delivery-notes"
-                    value={deliveryNotes}
-                    onChange={(e) => setDeliveryNotes(e.target.value)}
-                    placeholder="Gate code, building name, etc."
-                    className="h-10"
-                  />
-                </div>
-              </>
-            )}
-          </div>
-
           {/* Total Amount */}
           <div className="text-center">
             <p className="text-sm text-muted-foreground mb-1">Total Amount</p>
@@ -253,7 +161,7 @@ export function PaymentModal({ open, total, orderType, onClose, onConfirm }: Pay
           <Button 
             onClick={handleConfirm} 
             className="flex-1 gap-2"
-            disabled={!customerDetailsValid || !isValid}
+            disabled={!isValid}
           >
             <CheckCircle2 className="size-5" />
             Confirm Payment

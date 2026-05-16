@@ -78,8 +78,8 @@ export function TopBar({
   }, [])
 
   const orderTypes: { value: OrderType; label: string }[] = [
-    { value: 'dine-in', label: 'Dine In' },
     { value: 'takeaway', label: 'Take' },
+    { value: 'dine-in', label: 'Dine In' },
     { value: 'delivery', label: 'Delivery' },
   ]
 

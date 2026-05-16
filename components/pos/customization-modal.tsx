@@ -18,7 +18,9 @@ import {
   type ToppingOption,
   type CrustOption,
   formatMenuSizeLabel,
+  isHalfMenuSize,
 } from '@/lib/pos-data'
+import { resolveHalfSizeKey } from '@/lib/half-and-half'
 
 interface CustomizationModalProps {
   item: MenuItem | null
@@ -26,9 +28,21 @@ interface CustomizationModalProps {
   crusts?: CrustOption[]
   onClose: () => void
   onAdd: (item: CartItem) => void
+  /** When true, size is locked to half (second half of a half-and-half). */
+  lockSizeToHalf?: boolean
+  /** Called instead of onAdd when user confirms with half size (first half step). */
+  onHalfSizeFirstComplete?: (item: CartItem) => void
 }
 
-export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: CustomizationModalProps) {
+export function CustomizationModal({
+  item,
+  toppings,
+  crusts,
+  onClose,
+  onAdd,
+  lockSizeToHalf = false,
+  onHalfSizeFirstComplete,
+}: CustomizationModalProps) {
   const [size, setSize] = useState<string>('')
   const [crustId, setCrustId] = useState<string>('')
   const [selectedToppings, setSelectedToppings] = useState<string[]>([])
@@ -36,14 +50,19 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
 
   useEffect(() => {
     if (item) {
-      const defaultSize = item.sizes?.find((option) => option.isDefault)?.size
-      const firstSize = item.sizes?.[0]?.size
-      setSize(defaultSize ?? firstSize ?? '')
+      const halfKey = resolveHalfSizeKey(item)
+      if (lockSizeToHalf && halfKey) {
+        setSize(halfKey)
+      } else {
+        const defaultSize = item.sizes?.find((option) => option.isDefault)?.size
+        const firstSize = item.sizes?.[0]?.size
+        setSize(defaultSize ?? firstSize ?? '')
+      }
       setCrustId(crusts && crusts.length > 0 ? crusts[0].id : '')
       setSelectedToppings([])
       setQuantity(1)
     }
-  }, [item, crusts])
+  }, [item, crusts, lockSizeToHalf])
 
   if (!item) return null
 
@@ -75,13 +94,13 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
     return total * quantity
   }
 
-  const handleAdd = () => {
+  const buildCartDraft = (): CartItem => {
     const resolvedSize = hasSizeOptions ? (size || item.sizes?.[0]?.size || '') : ''
     const selectedSizePrice = item.sizes?.find((option) => option.size === resolvedSize)?.price
     const selectedCrust = availableCrusts.find((option) => option.id === crustId)
     const selectedCrustPrice = selectedCrust?.price ?? 0
     const parsedCrustId = Number(crustId)
-    onAdd({
+    return {
       ...item,
       quantity,
       size: hasSizeOptions ? resolvedSize : undefined,
@@ -92,9 +111,23 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
         .map((id) => availableToppings.find((topping) => topping.id === id))
         .filter((topping): topping is ToppingOption => Boolean(topping)),
       unitPrice: hasSizeOptions ? (selectedSizePrice ?? item.price) : undefined,
-    })
+    }
+  }
+
+  const handleAdd = () => {
+    const draft = buildCartDraft()
+    const resolvedSize = draft.size ?? ''
+    if (!lockSizeToHalf && isHalfMenuSize(resolvedSize) && onHalfSizeFirstComplete) {
+      onHalfSizeFirstComplete(draft)
+      onClose()
+      return
+    }
+    onAdd(draft)
     onClose()
   }
+
+  const isHalfLocked = lockSizeToHalf && Boolean(resolveHalfSizeKey(item))
+  const addButtonLabel = isHalfLocked ? 'Add second half' : 'Add to Order'
 
   return (
     <Dialog open={!!item} onOpenChange={() => onClose()}>
@@ -110,7 +143,13 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto py-4 pr-1">
-          {hasSizeOptions && (
+          {isHalfLocked && (
+            <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground">
+              Customize the <span className="font-medium">second half</span> (size: Half).
+            </p>
+          )}
+
+          {hasSizeOptions && !isHalfLocked && (
             <div>
               <h4 className="text-sm font-medium text-foreground mb-3">Size</h4>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
@@ -130,6 +169,18 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
                   </button>
                 ))}
               </div>
+              {isHalfMenuSize(size) && onHalfSizeFirstComplete && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Half size requires choosing a second item from the menu before adding to the order.
+                </p>
+              )}
+            </div>
+          )}
+
+          {isHalfLocked && (
+            <div>
+              <h4 className="text-sm font-medium text-foreground mb-2">Size</h4>
+              <p className="text-sm font-medium text-primary">{formatMenuSizeLabel(size)}</p>
             </div>
           )}
 
@@ -210,7 +261,9 @@ export function CustomizationModal({ item, toppings, crusts, onClose, onAdd }: C
               Cancel
             </Button>
             <Button onClick={handleAdd} className="gap-2 w-full sm:w-auto">
-              Add to Order
+              {isHalfMenuSize(size) && onHalfSizeFirstComplete && !lockSizeToHalf
+                ? 'Choose second half'
+                : addButtonLabel}
               <span className="font-bold">${calculateTotal().toFixed(2)}</span>
             </Button>
           </div>

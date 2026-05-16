@@ -21,15 +21,22 @@ import {
   type ToppingOption,
 } from '@/lib/pos-data'
 import { CustomizationModal } from './customization-modal'
+import { HalfSecondPickerModal } from './half-second-picker-modal'
+import { buildHalfAndHalfCartItem } from '@/lib/half-and-half'
 
 interface MenuSectionProps {
   searchQuery: string
   onAddToCart: (item: CartItem) => void
+  /** Run after customer details are set (first menu tap). */
+  ensureCustomerThen: (action: () => void) => void
 }
 
-export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
+export function MenuSection({ searchQuery, onAddToCart, ensureCustomerThen }: MenuSectionProps) {
   const [activeCategory, setActiveCategory] = useState<string>('all')
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
+  const [pendingHalfFirst, setPendingHalfFirst] = useState<CartItem | null>(null)
+  const [halfSecondPickerOpen, setHalfSecondPickerOpen] = useState(false)
+  const [secondHalfItem, setSecondHalfItem] = useState<MenuItem | null>(null)
   const [categories, setCategories] = useState<MenuCategoryTab[]>(DEFAULT_MENU_CATEGORIES)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [toppings, setToppings] = useState<ToppingOption[]>([])
@@ -172,21 +179,53 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
     return toppings
   }
 
-  const handleQuickAdd = (item: MenuItem) => {
-    const itemToppings = getToppingsForItem(item)
-    const hasApiToppings = itemToppings.some((t) => Number.isFinite(Number(t.id)))
-    const crustsForItem = mapApiCrusts(apiCrusts, item.categoryId)
-    const hasApiCrusts = crustsForItem.length > 0
-    const shouldOpenCustomization = Boolean(item.hasSizes || hasApiToppings || hasApiCrusts)
+  const resetHalfFlow = () => {
+    setPendingHalfFirst(null)
+    setHalfSecondPickerOpen(false)
+    setSecondHalfItem(null)
+  }
 
-    if (shouldOpenCustomization) {
-      setSelectedItem(item)
-    } else {
-      onAddToCart({
-        ...item,
-        quantity: 1,
-      })
-    }
+  const handleHalfFirstComplete = (draft: CartItem) => {
+    setSelectedItem(null)
+    setPendingHalfFirst(draft)
+    setHalfSecondPickerOpen(true)
+  }
+
+  const handleSecondHalfPicked = (item: MenuItem) => {
+    setHalfSecondPickerOpen(false)
+    setSecondHalfItem(item)
+  }
+
+  const handleHalfSecondAdd = (secondDraft: CartItem) => {
+    if (!pendingHalfFirst) return
+    const merged = buildHalfAndHalfCartItem(pendingHalfFirst, secondDraft)
+    onAddToCart(merged)
+    resetHalfFlow()
+    setSelectedItem(null)
+    setSecondHalfItem(null)
+  }
+
+  const handleHalfPickerCancel = () => {
+    resetHalfFlow()
+  }
+
+  const handleQuickAdd = (item: MenuItem) => {
+    ensureCustomerThen(() => {
+      const itemToppings = getToppingsForItem(item)
+      const hasApiToppings = itemToppings.some((t) => Number.isFinite(Number(t.id)))
+      const crustsForItem = mapApiCrusts(apiCrusts, item.categoryId)
+      const hasApiCrusts = crustsForItem.length > 0
+      const shouldOpenCustomization = Boolean(item.hasSizes || hasApiToppings || hasApiCrusts)
+
+      if (shouldOpenCustomization) {
+        setSelectedItem(item)
+      } else {
+        onAddToCart({
+          ...item,
+          quantity: 1,
+        })
+      }
+    })
   }
 
   return (
@@ -276,14 +315,36 @@ export function MenuSection({ searchQuery, onAddToCart }: MenuSectionProps) {
         </div>
       </ScrollArea>
 
-      {/* Customization Modal */}
       <CustomizationModal
         item={selectedItem}
         toppings={selectedItem ? getToppingsForItem(selectedItem) : toppings}
         crusts={crustsForSelectedItem}
         onClose={() => setSelectedItem(null)}
         onAdd={onAddToCart}
+        onHalfSizeFirstComplete={handleHalfFirstComplete}
       />
+
+      <CustomizationModal
+        item={secondHalfItem}
+        toppings={secondHalfItem ? getToppingsForItem(secondHalfItem) : []}
+        crusts={secondHalfItem ? mapApiCrusts(apiCrusts, secondHalfItem.categoryId) : []}
+        lockSizeToHalf
+        onClose={() => {
+          setSecondHalfItem(null)
+          if (pendingHalfFirst) setHalfSecondPickerOpen(true)
+        }}
+        onAdd={handleHalfSecondAdd}
+      />
+
+      {pendingHalfFirst && (
+        <HalfSecondPickerModal
+          open={halfSecondPickerOpen}
+          firstHalf={pendingHalfFirst}
+          menuItems={menuItems}
+          onSelect={handleSecondHalfPicked}
+          onCancel={handleHalfPickerCancel}
+        />
+      )}
     </div>
   )
 }

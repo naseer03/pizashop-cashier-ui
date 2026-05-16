@@ -9,6 +9,10 @@ import { PaymentModal } from '@/components/pos/payment-modal'
 import { OrderSuccessModal, type KotLineItemDisplay } from '@/components/pos/order-success-modal'
 import { DiscountModal } from '@/components/pos/discount-modal'
 import {
+  CustomerDetailsModal,
+  type CustomerModalIntent,
+} from '@/components/pos/customer-details-modal'
+import {
   clearClientAuth,
   getCashierDisplayName,
   getCashierInitials,
@@ -20,9 +24,13 @@ import { printKotReceiptFromResponse } from '@/lib/kot-receipt-print'
 import {
   type CartItem,
   type CustomerDetails,
+  type CustomerFormState,
   type OrderType,
   type PaymentMethod,
   type Discount,
+  emptyCustomerForm,
+  customerFormToDetails,
+  isCustomerFormValid,
   calculateItemTotal,
   calculateDiscountAmount,
   generateOrderNumber,
@@ -99,6 +107,10 @@ export function PosApp() {
   const [taxLoading, setTaxLoading] = useState(true)
   const [kotPrinted, setKotPrinted] = useState(false)
   const [kotPrinting, setKotPrinting] = useState(false)
+  const [customerForm, setCustomerForm] = useState<CustomerFormState>(emptyCustomerForm)
+  const [showCustomerModal, setShowCustomerModal] = useState(false)
+  const [customerModalIntent, setCustomerModalIntent] = useState<CustomerModalIntent>('start-order')
+  const [pendingAfterCustomer, setPendingAfterCustomer] = useState<(() => void) | null>(null)
 
   useEffect(() => {
     const loadTax = async () => {
@@ -136,6 +148,12 @@ export function PosApp() {
     void loadTax()
   }, [session?.accessToken, session?.tokenType])
 
+  useEffect(() => {
+    setCustomerForm(emptyCustomerForm())
+    setPendingAfterCustomer(null)
+    setShowCustomerModal(false)
+  }, [orderType])
+
   const handleLogout = useCallback(() => {
     clearClientAuth()
     router.replace('/login')
@@ -143,7 +161,7 @@ export function PosApp() {
 
   const addToCart = useCallback((item: CartItem) => {
     setCart((prev) => {
-      if (item.hasSizes) {
+      if (item.hasSizes || item.halfAndHalf) {
         return [...prev, item]
       }
 
@@ -159,6 +177,28 @@ export function PosApp() {
 
       return [...prev, item]
     })
+  }, [])
+
+  const openCustomerModal = useCallback((intent: CustomerModalIntent) => {
+    setCustomerModalIntent(intent)
+    setShowCustomerModal(true)
+  }, [])
+
+  const ensureCustomerThen = useCallback(
+    (action: () => void) => {
+      if (isCustomerFormValid(customerForm, orderType)) {
+        action()
+        return
+      }
+      setPendingAfterCustomer(() => action)
+      openCustomerModal('start-order')
+    },
+    [customerForm, openCustomerModal, orderType],
+  )
+
+  const handleCustomerModalClose = useCallback(() => {
+    setShowCustomerModal(false)
+    setPendingAfterCustomer(null)
   }, [])
 
   const updateQuantity = useCallback((id: string, delta: number) => {
@@ -186,15 +226,13 @@ export function PosApp() {
     setDiscount(null)
     setKotPrinted(false)
     setKotPrinting(false)
+    setCustomerForm(emptyCustomerForm())
   }, [])
 
-  const handleKotPrintedChange = useCallback(
-    async (printed: boolean) => {
-      if (!printed) {
-        setKotPrinted(false)
-        return
-      }
+  const executeKotPrint = useCallback(async () => {
       if (cart.length === 0) return
+
+      const customer = customerFormToDetails(customerForm, orderType)
 
       const token = session?.accessToken
       const tokenType = session?.tokenType || 'Bearer'
@@ -205,7 +243,7 @@ export function PosApp() {
 
       setKotPrinting(true)
       try {
-        const body = buildKotReceiptRequestBody({ cart, orderType, discount })
+        const body = buildKotReceiptRequestBody({ cart, orderType, discount, customer })
         const response = await fetch('/api/orders/kot', {
           method: 'POST',
           headers: {
@@ -282,9 +320,9 @@ export function PosApp() {
           orderNumber: apiOrderNumber ?? `KOT-${Date.now().toString(36).toUpperCase()}`,
           orderId: apiOrderId,
           total,
-          customer: { name: 'Walk-in', phone: '0000000000' },
+          customer,
           orderType: apiOrderType ?? orderType,
-          tableNumber: apiTableNumber,
+          tableNumber: apiTableNumber ?? customer.tableNumber,
           items: apiItems,
         })
         setShowKotSuccess(true)
@@ -295,9 +333,42 @@ export function PosApp() {
       } finally {
         setKotPrinting(false)
       }
+  }, [cart, customerForm, discount, orderType, session?.accessToken, session?.tokenType, taxRateDecimal])
+
+  const handleKotPrintedChange = useCallback(
+    async (printed: boolean) => {
+      if (!printed) {
+        setKotPrinted(false)
+        return
+      }
+      if (cart.length === 0) return
+      if (!isCustomerFormValid(customerForm, orderType)) {
+        openCustomerModal('kot')
+        return
+      }
+      await executeKotPrint()
     },
-    [cart, discount, orderType, session?.accessToken, session?.tokenType, taxRateDecimal],
+    [cart.length, customerForm, executeKotPrint, openCustomerModal, orderType],
   )
+
+  const handleCustomerModalConfirm = useCallback(async () => {
+    if (!isCustomerFormValid(customerForm, orderType)) return
+
+    const intent = customerModalIntent
+    const runPending = pendingAfterCustomer
+    setShowCustomerModal(false)
+    setPendingAfterCustomer(null)
+
+    if (runPending) {
+      runPending()
+      return
+    }
+    if (intent === 'checkout') {
+      setShowPayment(true)
+    } else if (intent === 'kot') {
+      await executeKotPrint()
+    }
+  }, [customerForm, customerModalIntent, executeKotPrint, orderType, pendingAfterCustomer])
 
   const holdOrder = useCallback(() => {
     alert('Order held! (Demo only)')
@@ -305,8 +376,12 @@ export function PosApp() {
 
   const handleCheckout = useCallback(() => {
     if (cart.length === 0 || taxLoading) return
+    if (!isCustomerFormValid(customerForm, orderType)) {
+      openCustomerModal('checkout')
+      return
+    }
     setShowPayment(true)
-  }, [cart.length, taxLoading])
+  }, [cart.length, customerForm, openCustomerModal, orderType, taxLoading])
 
   const handleApplyDiscount = useCallback((newDiscount: Discount) => {
     if (newDiscount.value === 0) {
@@ -317,7 +392,12 @@ export function PosApp() {
   }, [])
 
   const handlePaymentConfirm = useCallback(
-    async (method: PaymentMethod, customer: CustomerDetails, cashReceived?: number) => {
+    async (method: PaymentMethod, cashReceived?: number) => {
+      if (!isCustomerFormValid(customerForm, orderType)) {
+        alert('Please enter customer details before placing the order.')
+        return
+      }
+      const customer = customerFormToDetails(customerForm, orderType)
       const subtotal = cart.reduce((sum, item) => sum + calculateItemTotal(item), 0)
       const discountAmount =
         discount && discount.value > 0 ? calculateDiscountAmount(subtotal, discount) : 0
@@ -342,7 +422,7 @@ export function PosApp() {
         customer_name: customer.name,
         customer_phone: customer.phone,
         customer_email: '',
-        table_number: normalizedOrderType === 'dine_in' ? '1' : undefined,
+        table_number: normalizedOrderType === 'dine_in' ? customer.tableNumber : undefined,
         delivery_address: customer.address,
         delivery_instructions: customer.deliveryNotes,
         items: mapCartItemsToOrderLines(cart),
@@ -406,7 +486,7 @@ export function PosApp() {
       setShowPayment(false)
       setShowSuccess(true)
     },
-    [cart, discount, orderType, session?.accessToken, session?.tokenType, taxRateDecimal, kotPrinted],
+    [cart, customerForm, discount, orderType, session?.accessToken, session?.tokenType, taxRateDecimal, kotPrinted],
   )
 
   const handleSuccessClose = useCallback(() => {
@@ -446,7 +526,11 @@ export function PosApp() {
       />
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
-        <MenuSection searchQuery={searchQuery} onAddToCart={addToCart} />
+        <MenuSection
+          searchQuery={searchQuery}
+          onAddToCart={addToCart}
+          ensureCustomerThen={ensureCustomerThen}
+        />
         <CartSection
           cart={cart}
           orderType={orderType}
@@ -460,7 +544,6 @@ export function PosApp() {
           onRemoveItem={removeItem}
           onClearCart={clearCart}
           onHoldOrder={holdOrder}
-          onCheckout={handleCheckout}
           onOpenDiscount={() => setShowDiscount(true)}
         />
       </div>
@@ -472,10 +555,19 @@ export function PosApp() {
         currentDiscount={discount}
       />
 
+      <CustomerDetailsModal
+        open={showCustomerModal}
+        orderType={orderType}
+        value={customerForm}
+        onChange={setCustomerForm}
+        intent={customerModalIntent}
+        onConfirm={() => void handleCustomerModalConfirm()}
+        onClose={handleCustomerModalClose}
+      />
+
       <PaymentModal
         open={showPayment}
         total={total}
-        orderType={orderType}
         onClose={() => setShowPayment(false)}
         onConfirm={handlePaymentConfirm}
       />

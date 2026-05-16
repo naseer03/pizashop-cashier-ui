@@ -1,4 +1,5 @@
 import type { CartItem, Discount, OrderType } from '@/lib/pos-data'
+import { formatHalfAndHalfOrderNote } from '@/lib/half-and-half'
 
 export type CashierOrderTypeApi = 'dine_in' | 'takeaway' | 'delivery'
 
@@ -16,15 +17,24 @@ export function mapCartItemsToOrderLines(cart: CartItem[]) {
       })
       .filter((topping): topping is { topping_id: number; quantity: number } => topping !== null)
 
+    const halfNote = formatHalfAndHalfOrderNote(item)
+    const toppingNote =
+      item.toppings?.length && !item.halfAndHalf
+        ? `Toppings: ${item.toppings.map((topping) => topping.name).join(', ')}`
+        : undefined
+    const special_instructions = [halfNote, toppingNote].filter(Boolean).join(' | ') || undefined
+
+    const menuItemId = item.halfAndHalf
+      ? Number(item.halfAndHalf.first.menuItemId)
+      : Number(item.id)
+
     return {
-      menu_item_id: Number(item.id),
+      menu_item_id: menuItemId,
       size: item.hasSizes ? (item.size ?? item.sizes?.[0]?.size) : undefined,
-      crust_id: item.crustId,
+      crust_id: item.halfAndHalf ? item.halfAndHalf.first.crustId : item.crustId,
       toppings: toppings.length > 0 ? toppings : undefined,
       quantity: item.quantity,
-      special_instructions: item.toppings?.length
-        ? `Toppings: ${item.toppings.map((topping) => topping.name).join(', ')}`
-        : undefined,
+      special_instructions,
     }
   })
 }
@@ -37,26 +47,27 @@ export function buildKotReceiptRequestBody(params: {
   cart: CartItem[]
   orderType: OrderType
   discount: Discount | null
+  customer: { name: string; phone: string; address?: string; deliveryNotes?: string; tableNumber?: string }
 }): Record<string, unknown> {
   const normalizedOrderType = normalizeOrderTypeForApi(params.orderType)
 
   const body: Record<string, unknown> = {
     order_type: normalizedOrderType,
     kot_printed: true,
-    customer_name: 'Walk-in',
-    customer_phone: '0000000000',
+    customer_name: params.customer.name,
+    customer_phone: params.customer.phone,
     customer_email: '',
     items: mapCartItemsToOrderLines(params.cart),
     notes: '',
     payment_method: 'cash',
   }
 
-  if (normalizedOrderType === 'dine_in') {
-    body.table_number = '1'
+  if (normalizedOrderType === 'dine_in' && params.customer.tableNumber) {
+    body.table_number = params.customer.tableNumber
   }
   if (normalizedOrderType === 'delivery') {
-    body.delivery_address = ''
-    body.delivery_instructions = ''
+    body.delivery_address = params.customer.address ?? ''
+    body.delivery_instructions = params.customer.deliveryNotes ?? ''
   }
   if (params.discount?.name) {
     body.discount_code = params.discount.name

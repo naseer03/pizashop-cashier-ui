@@ -1,9 +1,8 @@
 'use client'
 
-import { Minus, Plus, Trash2, ShoppingCart, Pause, CreditCard, Tag, Printer, Loader2 } from 'lucide-react'
+import { Minus, Plus, Trash2, ShoppingCart, Pause, Tag, Printer, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   type CartItem,
   type OrderType,
@@ -12,6 +11,7 @@ import {
   calculateDiscountAmount,
   formatMenuSizeLabel,
 } from '@/lib/pos-data'
+import { getCartItemDisplayName } from '@/lib/half-and-half'
 
 interface CartSectionProps {
   cart: CartItem[]
@@ -27,7 +27,6 @@ interface CartSectionProps {
   onRemoveItem: (id: string) => void
   onClearCart: () => void
   onHoldOrder: () => void
-  onCheckout: () => void
   onOpenDiscount: () => void
 }
 
@@ -44,7 +43,6 @@ export function CartSection({
   onRemoveItem,
   onClearCart,
   onHoldOrder,
-  onCheckout,
   onOpenDiscount,
 }: CartSectionProps) {
   const subtotal = cart.reduce((sum, item) => sum + calculateItemTotal(item), 0)
@@ -74,7 +72,15 @@ export function CartSection({
   }
 
   return (
-    <div className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden bg-card border-t border-border max-h-[50vh] lg:h-full lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l xl:w-96">
+    <div
+      className={
+        'flex min-h-0 w-full shrink-0 flex-col overflow-hidden bg-card border-t border-border ' +
+        /* Mobile: grow into remaining column height, cap height so menu still fits */
+        'max-lg:flex-1 max-lg:max-h-[min(70dvh,32rem)] ' +
+        /* Desktop sidebar */
+        'lg:h-full lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l xl:w-96'
+      }
+    >
       {/* Header */}
       <div className="p-3 sm:p-4 border-b border-border shrink-0">
         <div className="flex items-center justify-between">
@@ -91,16 +97,19 @@ export function CartSection({
         )}
       </div>
 
-      {/* Cart Items */}
-      <ScrollArea className="min-h-0 flex-1 basis-0">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 pb-2 pt-1 sm:px-4 sm:pb-3 sm:pt-2"
+        role="region"
+        aria-label="Cart line items"
+      >
         {cart.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 sm:h-48 text-muted-foreground">
+          <div className="flex min-h-32 flex-col items-center justify-center py-6 text-muted-foreground sm:min-h-40 sm:py-10">
             <ShoppingCart className="size-10 sm:size-12 mb-2 sm:mb-3 opacity-50" />
             <p className="text-xs sm:text-sm">No items in cart</p>
             <p className="text-xs">Tap menu items to add</p>
           </div>
         ) : (
-          <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
+          <div className="space-y-2 sm:space-y-3">
             {cart.map((item, index) => (
               <div
                 key={`${item.id}-${item.size}-${item.crust}-${item.toppings?.map((topping) => topping.id).join(',')}-${index}`}
@@ -110,11 +119,33 @@ export function CartSection({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-base sm:text-lg">{item.image}</span>
-                      <h3 className="font-medium text-foreground text-xs sm:text-sm truncate">{item.name}</h3>
+                      <h3 className="font-medium text-foreground text-xs sm:text-sm truncate">
+                        {getCartItemDisplayName(item)}
+                      </h3>
                     </div>
-                    
-                    {/* Customizations */}
-                    {(item.size || item.crust) && (
+
+                    {item.halfAndHalf && (
+                      <div className="mt-1.5 space-y-1 text-xs text-muted-foreground">
+                        <p>
+                          <span className="font-medium text-foreground">1st: </span>
+                          {item.halfAndHalf.first.name}
+                          {item.halfAndHalf.first.crust ? ` · ${item.halfAndHalf.first.crust}` : ''}
+                          {item.halfAndHalf.first.toppings?.length
+                            ? ` · +${item.halfAndHalf.first.toppings.map((t) => t.name).join(', ')}`
+                            : ''}
+                        </p>
+                        <p>
+                          <span className="font-medium text-foreground">2nd: </span>
+                          {item.halfAndHalf.second.name}
+                          {item.halfAndHalf.second.crust ? ` · ${item.halfAndHalf.second.crust}` : ''}
+                          {item.halfAndHalf.second.toppings?.length
+                            ? ` · +${item.halfAndHalf.second.toppings.map((t) => t.name).join(', ')}`
+                            : ''}
+                        </p>
+                      </div>
+                    )}
+
+                    {!item.halfAndHalf && (item.size || item.crust) && (
                       <div className="flex gap-1 mt-1 flex-wrap">
                         {item.size && (
                           <Badge variant="outline" className="text-xs capitalize px-1.5 py-0">
@@ -128,14 +159,14 @@ export function CartSection({
                         )}
                       </div>
                     )}
-                    
-                    {item.toppings && item.toppings.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+
+                    {!item.halfAndHalf && item.toppings && item.toppings.length > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                         + {getToppingNames(item.toppings)}
                       </p>
                     )}
                   </div>
-                  
+
                   <Button
                     variant="ghost"
                     size="icon"
@@ -174,7 +205,7 @@ export function CartSection({
             ))}
           </div>
         )}
-      </ScrollArea>
+      </div>
 
       {/* Summary */}
       {cart.length > 0 && (
@@ -236,7 +267,7 @@ export function CartSection({
               type="button"
               variant={kotPrinted ? 'default' : 'outline'}
               size="sm"
-              title="Fetch KOT receipt from kitchen API and mark as printed"
+              title="Print kitchen order ticket"
               disabled={kotPrinting}
               onClick={() => void onKotPrintedChange(!kotPrinted)}
               className="gap-1 h-9 px-1 sm:gap-1.5 sm:px-2"
@@ -246,21 +277,9 @@ export function CartSection({
               ) : (
                 <Printer className="size-3.5 shrink-0" aria-hidden />
               )}
-              <span className="truncate text-[11px] sm:text-xs leading-tight text-center">
-                KOT
-                <span className="hidden sm:inline"> printed</span>
-              </span>
+              <span className="truncate text-[11px] sm:text-xs leading-tight text-center">KOT</span>
             </Button>
           </div>
-          
-          <Button
-            onClick={onCheckout}
-            disabled={taxLoading}
-            className="w-full h-10 sm:h-12 text-sm sm:text-base gap-2"
-          >
-            <CreditCard className="size-4 sm:size-5" />
-            {taxLoading ? 'Loading tax…' : `Pay $${total.toFixed(2)}`}
-          </Button>
         </div>
       )}
     </div>

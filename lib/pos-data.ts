@@ -19,6 +19,19 @@ export interface MenuItemSizeOption {
   isDefault?: boolean
 }
 
+export interface CartHalfSide {
+  menuItemId: string
+  name: string
+  crust?: string
+  crustId?: number
+  toppings?: ToppingOption[]
+}
+
+export interface HalfAndHalfData {
+  first: CartHalfSide
+  second: CartHalfSide
+}
+
 export interface CartItem extends MenuItem {
   quantity: number
   size?: string
@@ -27,6 +40,8 @@ export interface CartItem extends MenuItem {
   crustPrice?: number
   toppings?: ToppingOption[]
   unitPrice?: number
+  /** Two different menu items combined when size is half */
+  halfAndHalf?: HalfAndHalfData
 }
 
 export type OrderType = 'dine-in' | 'takeaway' | 'delivery'
@@ -37,6 +52,48 @@ export interface CustomerDetails {
   /** Set for delivery orders */
   address?: string
   deliveryNotes?: string
+  /** Set for dine-in orders */
+  tableNumber?: string
+}
+
+export interface CustomerFormState {
+  name: string
+  phone: string
+  address: string
+  deliveryNotes: string
+  tableNumber: string
+}
+
+export const emptyCustomerForm = (): CustomerFormState => ({
+  name: '',
+  phone: '',
+  address: '',
+  deliveryNotes: '',
+  tableNumber: '',
+})
+
+export function isCustomerFormValid(form: CustomerFormState, orderType: OrderType): boolean {
+  if (!form.name.trim() || !form.phone.trim()) return false
+  if (orderType === 'delivery' && !form.address.trim()) return false
+  if (orderType === 'dine-in' && !form.tableNumber.trim()) return false
+  return true
+}
+
+export function customerFormToDetails(form: CustomerFormState, orderType: OrderType): CustomerDetails {
+  const base: CustomerDetails = {
+    name: form.name.trim(),
+    phone: form.phone.trim(),
+  }
+  if (orderType === 'dine-in' && form.tableNumber.trim()) {
+    base.tableNumber = form.tableNumber.trim()
+  }
+  if (orderType === 'delivery') {
+    base.address = form.address.trim()
+    if (form.deliveryNotes.trim()) {
+      base.deliveryNotes = form.deliveryNotes.trim()
+    }
+  }
+  return base
 }
 
 export type PaymentMethod = 'cash' | 'card' | 'online'
@@ -192,6 +249,12 @@ export function formatMenuSizeLabel(sizeKey: string): string {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ')
+}
+
+export function isHalfMenuSize(sizeKey: string | undefined): boolean {
+  if (!sizeKey) return false
+  const normalized = normalizeMenuSizeKey(sizeKey)
+  return normalized === 'half' || normalized.endsWith('_half') || normalized.startsWith('half_')
 }
 
 const DISPLAY_SIZE_ORDER: Record<string, number> = {
@@ -369,6 +432,10 @@ export function parseTaxRateDecimalFromCashierTaxApi(payload: unknown): number |
 }
 
 export function calculateItemTotal(item: CartItem): number {
+  if (item.halfAndHalf && item.unitPrice != null) {
+    return item.unitPrice * item.quantity
+  }
+
   let total: number
   if (item.unitPrice != null) {
     total = item.unitPrice

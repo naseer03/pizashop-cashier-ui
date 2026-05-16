@@ -57,8 +57,9 @@ export function OrderSuccessModal({
   }
 
   const orderTypeLabels: Record<OrderType, string> = {
-    'dine-in': 'Dine In',
+    
     takeaway: 'Takeaway',
+    'dine-in': 'Dine In',
     delivery: 'Delivery',
   }
   const isKotVariant = variant === 'kot'
@@ -82,14 +83,14 @@ export function OrderSuccessModal({
           </div>
 
           {/* Success Message */}
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-foreground">
+          {/* <div className="space-y-2"> */}
+            {/* <h2 className="text-2xl font-bold text-foreground">
               {isKotVariant ? 'KOT Printed Successfully!' : 'Payment Successful!'}
-            </h2>
-            <p className="text-muted-foreground">
+            </h2> */}
+            {/* <p className="text-muted-foreground">
               {isKotVariant ? 'Kitchen order ticket is ready.' : 'Order has been placed successfully'}
-            </p>
-          </div>
+            </p> */}
+          {/* </div> */}
 
           {/* Order Details */}
           <div className="bg-secondary rounded-xl p-4 space-y-3 text-left">
