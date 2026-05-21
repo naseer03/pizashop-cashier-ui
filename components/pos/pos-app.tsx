@@ -8,6 +8,7 @@ import { CartSection } from '@/components/pos/cart-section'
 import { PaymentModal } from '@/components/pos/payment-modal'
 import { OrderSuccessModal, type KotLineItemDisplay } from '@/components/pos/order-success-modal'
 import { DiscountModal } from '@/components/pos/discount-modal'
+import { OrderCommentsModal } from '@/components/pos/order-comments-modal'
 import {
   CustomerDetailsModal,
   type CustomerModalIntent,
@@ -18,8 +19,12 @@ import {
   getCashierInitials,
   getClientSession,
 } from '@/lib/auth'
+import { cashierAuthFetch, handleAuthErrorFromResponse } from '@/lib/cashier-api'
 import { appendOrderFromCheckout } from '@/lib/order-history'
-import { buildKotReceiptRequestBody, mapCartItemsToOrderLines } from '@/lib/cashier-order-payload'
+import {
+  buildCreateOrderRequestBody,
+  buildKotReceiptRequestBody,
+} from '@/lib/cashier-order-payload'
 import { printKotReceiptFromResponse } from '@/lib/kot-receipt-print'
 import {
   type CartItem,
@@ -65,6 +70,7 @@ interface KotApiData {
   table_number?: string | null
   items?: KotApiItem[]
   total_amount?: number
+  comments?: string | null
 }
 
 interface KotApiResponse {
@@ -82,6 +88,8 @@ export function PosApp() {
   const [showSuccess, setShowSuccess] = useState(false)
   const [showKotSuccess, setShowKotSuccess] = useState(false)
   const [showDiscount, setShowDiscount] = useState(false)
+  const [showComments, setShowComments] = useState(false)
+  const [orderComments, setOrderComments] = useState('')
   const session = getClientSession()
   const cashierName = getCashierDisplayName(session?.employee)
   const cashierInitials = getCashierInitials(session?.employee)
@@ -102,6 +110,7 @@ export function PosApp() {
     orderType: OrderType
     tableNumber?: string | null
     items: KotLineItemDisplay[]
+    comments?: string
   } | null>(null)
   const [taxRateDecimal, setTaxRateDecimal] = useState(0)
   const [taxLoading, setTaxLoading] = useState(true)
@@ -114,28 +123,19 @@ export function PosApp() {
 
   useEffect(() => {
     const loadTax = async () => {
-      const token = session?.accessToken
-      const tokenType = session?.tokenType || 'Bearer'
-      if (!token) {
-        setTaxRateDecimal(0)
-        setTaxLoading(false)
-        return
-      }
-
       setTaxLoading(true)
       try {
-        const res = await fetch('/api/tax', {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `${tokenType} ${token}`,
-          },
-          cache: 'no-store',
-        })
-        if (!res.ok) {
+        const res = await cashierAuthFetch('/api/tax', { cache: 'no-store' })
+        if (!res) {
           setTaxRateDecimal(0)
           return
         }
         const json: unknown = await res.json()
+        if (!res.ok) {
+          handleAuthErrorFromResponse(res.status, json)
+          setTaxRateDecimal(0)
+          return
+        }
         const parsed = parseTaxRateDecimalFromCashierTaxApi(json)
         setTaxRateDecimal(parsed ?? 0)
       } catch {
@@ -146,7 +146,7 @@ export function PosApp() {
     }
 
     void loadTax()
-  }, [session?.accessToken, session?.tokenType])
+  }, [session?.accessToken])
 
   useEffect(() => {
     setCustomerForm(emptyCustomerForm())
@@ -227,6 +227,7 @@ export function PosApp() {
     setKotPrinted(false)
     setKotPrinting(false)
     setCustomerForm(emptyCustomerForm())
+    setOrderComments('')
   }, [])
 
   const executeKotPrint = useCallback(async () => {
@@ -234,25 +235,24 @@ export function PosApp() {
 
       const customer = customerFormToDetails(customerForm, orderType)
 
-      const token = session?.accessToken
-      const tokenType = session?.tokenType || 'Bearer'
-      if (!token) {
-        alert('Please login again. Missing cashier session.')
-        return
-      }
-
       setKotPrinting(true)
       try {
-        const body = buildKotReceiptRequestBody({ cart, orderType, discount, customer })
-        const response = await fetch('/api/orders/kot', {
+        const body = buildKotReceiptRequestBody({
+          cart,
+          orderType,
+          discount,
+          customer,
+          comments: orderComments,
+        })
+        const response = await cashierAuthFetch('/api/orders/kot', {
           method: 'POST',
           headers: {
             Accept: 'application/json, application/pdf, text/html;q=0.9,*/*;q=0.8',
             'Content-Type': 'application/json',
-            Authorization: `${tokenType} ${token}`,
           },
           body: JSON.stringify(body),
         })
+        if (!response) return
         const responseForMeta = response.clone()
         await printKotReceiptFromResponse(response)
         setKotPrinted(true)
@@ -263,6 +263,7 @@ export function PosApp() {
         let apiOrderType: OrderType | undefined
         let apiItems: KotLineItemDisplay[] = []
         let apiTotal: number | undefined
+        let apiComments: string | undefined
 
         const metaContentType = responseForMeta.headers.get('content-type') ?? ''
         if (metaContentType.includes('application/json')) {
@@ -304,6 +305,10 @@ export function PosApp() {
             if (typeof data?.total_amount === 'number' && Number.isFinite(data.total_amount)) {
               apiTotal = data.total_amount
             }
+            const rawComments = data?.comments
+            if (typeof rawComments === 'string' && rawComments.trim()) {
+              apiComments = rawComments.trim()
+            }
           } catch {
             // ignore parsing errors and keep UI fallbacks
           }
@@ -316,6 +321,7 @@ export function PosApp() {
         const tax =
           afterDiscount * (Number.isFinite(taxRateDecimal) && taxRateDecimal >= 0 ? taxRateDecimal : 0)
         const total = apiTotal ?? afterDiscount + tax
+        const kotComments = apiComments ?? (orderComments.trim() || undefined)
         setKotSuccessDetails({
           orderNumber: apiOrderNumber ?? `KOT-${Date.now().toString(36).toUpperCase()}`,
           orderId: apiOrderId,
@@ -324,6 +330,7 @@ export function PosApp() {
           orderType: apiOrderType ?? orderType,
           tableNumber: apiTableNumber ?? customer.tableNumber,
           items: apiItems,
+          comments: kotComments,
         })
         setShowKotSuccess(true)
       } catch (e) {
@@ -333,7 +340,16 @@ export function PosApp() {
       } finally {
         setKotPrinting(false)
       }
-  }, [cart, customerForm, discount, orderType, session?.accessToken, session?.tokenType, taxRateDecimal])
+  }, [
+    cart,
+    customerForm,
+    discount,
+    orderComments,
+    orderType,
+    session?.accessToken,
+    session?.tokenType,
+    taxRateDecimal,
+  ])
 
   const handleKotPrintedChange = useCallback(
     async (printed: boolean) => {
@@ -406,48 +422,33 @@ export function PosApp() {
       const total = afterDiscount + tax
       const fallbackOrderNumber = generateOrderNumber()
 
-      const token = session?.accessToken
-      const tokenType = session?.tokenType || 'Bearer'
-      if (!token) {
-        alert('Please login again. Missing cashier session.')
-        return
-      }
-
-      const normalizedOrderType: 'dine_in' | 'takeaway' | 'delivery' =
-        orderType === 'dine-in' ? 'dine_in' : orderType
-
-      const payload = {
-        order_type: normalizedOrderType,
-        kot_printed: kotPrinted,
-        customer_name: customer.name,
-        customer_phone: customer.phone,
-        customer_email: '',
-        table_number: normalizedOrderType === 'dine_in' ? customer.tableNumber : undefined,
-        delivery_address: customer.address,
-        delivery_instructions: customer.deliveryNotes,
-        items: mapCartItemsToOrderLines(cart),
-        discount_code: discount?.name,
-        notes: '',
-        payment_method: method,
-      }
+      const payload = buildCreateOrderRequestBody({
+        cart,
+        orderType,
+        discount,
+        customer,
+        paymentMethod: method,
+        kotPrinted,
+        comments: orderComments,
+      })
 
       let apiOrderNumber = fallbackOrderNumber
       // Keep cashier-facing amount consistent with the confirmed checkout total.
       let finalDisplayTotal = total
       let finalChange: number | undefined = undefined
       try {
-        const response = await fetch('/api/orders', {
+        const response = await cashierAuthFetch('/api/orders', {
           method: 'POST',
           headers: {
-            Accept: 'application/json',
             'Content-Type': 'application/json',
-            Authorization: `${tokenType} ${token}`,
           },
           body: JSON.stringify(payload),
         })
+        if (!response) return
 
         const result = (await response.json()) as CreateOrderApiResponse
         if (!response.ok || !result.success) {
+          if (handleAuthErrorFromResponse(response.status, result)) return
           const baseMessage = result.message?.trim() || response.statusText || 'Failed to create order.'
           alert(`Create order failed (${response.status}): ${baseMessage}`)
           return
@@ -486,7 +487,17 @@ export function PosApp() {
       setShowPayment(false)
       setShowSuccess(true)
     },
-    [cart, customerForm, discount, orderType, session?.accessToken, session?.tokenType, taxRateDecimal, kotPrinted],
+    [
+      cart,
+      customerForm,
+      discount,
+      orderComments,
+      orderType,
+      session?.accessToken,
+      session?.tokenType,
+      taxRateDecimal,
+      kotPrinted,
+    ],
   )
 
   const handleSuccessClose = useCallback(() => {
@@ -545,6 +556,8 @@ export function PosApp() {
           onClearCart={clearCart}
           onHoldOrder={holdOrder}
           onOpenDiscount={() => setShowDiscount(true)}
+          orderComments={orderComments}
+          onOpenComments={() => setShowComments(true)}
         />
       </div>
 
@@ -553,6 +566,13 @@ export function PosApp() {
         onClose={() => setShowDiscount(false)}
         onApply={handleApplyDiscount}
         currentDiscount={discount}
+      />
+
+      <OrderCommentsModal
+        open={showComments}
+        onClose={() => setShowComments(false)}
+        value={orderComments}
+        onSave={setOrderComments}
       />
 
       <CustomerDetailsModal
@@ -596,6 +616,7 @@ export function PosApp() {
           kotTableNumber={kotSuccessDetails.tableNumber}
           kotOrderId={kotSuccessDetails.orderId}
           kotItems={kotSuccessDetails.items}
+          kotComments={kotSuccessDetails.comments}
           onClose={handleKotSuccessClose}
           variant="kot"
         />

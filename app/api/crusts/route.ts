@@ -1,7 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const CRUSTS_API_URL =
-  'https://pizzaapi.lefruit.in/v1/cashier/crusts?only_available=true'
+const CASHIER_CRUSTS_API_URL = 'https://pizzaapi.lefruit.in/v1/cashier/crusts'
+const PUBLIC_CRUSTS_API_URL = 'https://pizzaapi.lefruit.in/v1/crusts'
+
+async function readJsonResponse(response: Response): Promise<unknown> {
+  const text = await response.text()
+  if (!text) return null
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return { success: false, message: text }
+  }
+}
+
+function availableFlag(request: NextRequest): string {
+  const isAvailable = request.nextUrl.searchParams.get('is_available')
+  const onlyAvailable = request.nextUrl.searchParams.get('only_available')
+  if (onlyAvailable != null && onlyAvailable !== '') return onlyAvailable
+  if (isAvailable != null && isAvailable !== '') return isAvailable
+  return 'true'
+}
+
+function buildCashierCrustsUrl(request: NextRequest): URL {
+  const upstreamUrl = new URL(CASHIER_CRUSTS_API_URL)
+  const categoryId = request.nextUrl.searchParams.get('category_id')
+  if (categoryId?.trim()) {
+    upstreamUrl.searchParams.set('category_id', categoryId.trim())
+  }
+  upstreamUrl.searchParams.set('only_available', availableFlag(request))
+  return upstreamUrl
+}
+
+function buildPublicCrustsUrl(request: NextRequest): URL {
+  const upstreamUrl = new URL(PUBLIC_CRUSTS_API_URL)
+  const categoryId = request.nextUrl.searchParams.get('category_id')
+  if (categoryId?.trim()) {
+    upstreamUrl.searchParams.set('category_id', categoryId.trim())
+  }
+  upstreamUrl.searchParams.set('is_available', availableFlag(request))
+  return upstreamUrl
+}
+
+async function fetchCrustsUpstream(
+  url: URL,
+  authHeader: string,
+): Promise<{ response: Response; data: unknown }> {
+  const response = await fetch(url.toString(), {
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+      Authorization: authHeader,
+    },
+  })
+  const data = await readJsonResponse(response)
+  return { response, data }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,23 +66,35 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const response = await fetch(CRUSTS_API_URL, {
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        Authorization: authHeader,
-      },
-    })
+    let { response, data } = await fetchCrustsUpstream(
+      buildCashierCrustsUrl(request),
+      authHeader,
+    )
 
     if (!response.ok) {
+      const fallback = await fetchCrustsUpstream(buildPublicCrustsUrl(request), authHeader)
+      if (fallback.response.ok) {
+        response = fallback.response
+        data = fallback.data
+      }
+    }
+
+    if (!response.ok) {
+      const message =
+        data &&
+        typeof data === 'object' &&
+        'message' in data &&
+        typeof (data as { message: unknown }).message === 'string'
+          ? (data as { message: string }).message
+          : 'Failed to fetch crusts'
+
       return NextResponse.json(
-        { success: false, message: 'Failed to fetch crusts' },
+        data ?? { success: false, message },
         { status: response.status },
       )
     }
 
-    const data = await response.json()
-    return NextResponse.json(data)
+    return NextResponse.json(data ?? { success: true, data: { categories: [] } })
   } catch {
     return NextResponse.json(
       { success: false, message: 'Unable to fetch crusts' },

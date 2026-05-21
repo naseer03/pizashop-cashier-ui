@@ -1,20 +1,23 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Star } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
-import { getClientSession } from '@/lib/auth'
+import { cashierAuthFetch, handleAuthErrorFromResponse } from '@/lib/cashier-api'
+import { getUpstreamErrorMessage } from '@/lib/upstream-fetch'
 import {
-  mapApiCrusts,
   DEFAULT_MENU_CATEGORIES,
+  getModifierCategoryIds,
   mapApiCategoriesToTabs,
   mapApiMenuItems,
   mapApiToppings,
+  mapApiCrustsToOptions,
+  parseCrustsFromApiPayload,
+  parseToppingsFromApiPayload,
   type ApiCategory,
-  type ApiCrust,
   type ApiMenuItem,
-  type ApiTopping,
+  type CrustOption,
   type MenuCategoryTab,
   type MenuItem,
   type CartItem,
@@ -39,58 +42,54 @@ export function MenuSection({ searchQuery, onAddToCart, ensureCustomerThen }: Me
   const [secondHalfItem, setSecondHalfItem] = useState<MenuItem | null>(null)
   const [categories, setCategories] = useState<MenuCategoryTab[]>(DEFAULT_MENU_CATEGORIES)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [toppings, setToppings] = useState<ToppingOption[]>([])
-  const [apiCrusts, setApiCrusts] = useState<ApiCrust[]>([])
+  const [toppingsByCategoryId, setToppingsByCategoryId] = useState<
+    Record<number, ToppingOption[]>
+  >({})
+  const [toppingsLoadingCategoryId, setToppingsLoadingCategoryId] = useState<number | null>(
+    null,
+  )
+  const [toppingsErrorByCategoryId, setToppingsErrorByCategoryId] = useState<
+    Record<number, string>
+  >({})
+  const [crustsByCategoryId, setCrustsByCategoryId] = useState<Record<number, CrustOption[]>>(
+    {},
+  )
+  const [crustsLoadingCategoryId, setCrustsLoadingCategoryId] = useState<number | null>(null)
+  const [crustsErrorByCategoryId, setCrustsErrorByCategoryId] = useState<Record<number, string>>(
+    {},
+  )
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const toppingsFetchStartedRef = useRef<Set<number>>(new Set())
+  const crustsFetchStartedRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
     const fetchMenuAndCategories = async () => {
-      const session = getClientSession()
-      const token = session?.accessToken
-      const tokenType = session?.tokenType || 'Bearer'
-      if (!token) {
-        setLoading(false)
-        setLoadError('Missing cashier session. Please login again.')
-        return
-      }
-
       try {
         setLoading(true)
         setLoadError(null)
 
-        const [categoriesRes, menuRes, toppingsRes, crustsRes] = await Promise.all([
-          fetch('/api/categories', {
-            headers: {
-              Accept: 'application/json',
-              Authorization: `${tokenType} ${token}`,
-            },
-            cache: 'no-store',
-          }),
-          fetch('/api/menu?only_available=true', {
-            headers: {
-              Accept: 'application/json',
-              Authorization: `${tokenType} ${token}`,
-            },
-            cache: 'no-store',
-          }),
-          fetch('/api/toppings', {
-            headers: {
-              Accept: 'application/json',
-              Authorization: `${tokenType} ${token}`,
-            },
-            cache: 'no-store',
-          }),
-          fetch('/api/crusts', {
-            headers: {
-              Accept: 'application/json',
-              Authorization: `${tokenType} ${token}`,
-            },
-            cache: 'no-store',
-          }),
+        const [categoriesRes, menuRes] = await Promise.all([
+          cashierAuthFetch('/api/categories', { cache: 'no-store' }),
+          cashierAuthFetch('/api/menu?only_available=true', { cache: 'no-store' }),
         ])
 
+        if (!categoriesRes || !menuRes) {
+          setLoading(false)
+          return
+        }
+
         if (!categoriesRes.ok || !menuRes.ok) {
+          const failedRes = !categoriesRes.ok ? categoriesRes : menuRes
+          try {
+            const errBody = await failedRes.clone().json()
+            if (handleAuthErrorFromResponse(failedRes.status, errBody)) {
+              setLoading(false)
+              return
+            }
+          } catch {
+            // ignore parse errors
+          }
           const categoryError = categoriesRes.ok
             ? null
             : `${categoriesRes.status} ${categoriesRes.statusText || 'categories error'}`
@@ -110,39 +109,19 @@ export function MenuSection({ searchQuery, onAddToCart, ensureCustomerThen }: Me
         }
         const apiCategories = categoriesPayload?.data?.categories ?? []
         const apiItems = menuPayload?.data?.items ?? []
-        let apiToppings: ApiTopping[] = []
-        if (toppingsRes.ok) {
-          const toppingsPayload = (await toppingsRes.json()) as
-            | { success?: boolean; data?: { toppings?: ApiTopping[] } }
-            | { toppings?: ApiTopping[] }
-            | ApiTopping[]
-          apiToppings = Array.isArray(toppingsPayload)
-            ? toppingsPayload
-            : toppingsPayload?.data?.toppings ?? toppingsPayload?.toppings ?? []
-        }
-        let loadedCrusts: ApiCrust[] = []
-        if (crustsRes.ok) {
-          const crustsPayload = (await crustsRes.json()) as
-            | { success?: boolean; data?: { crusts?: ApiCrust[] } }
-            | { crusts?: ApiCrust[] }
-            | ApiCrust[]
-          loadedCrusts = Array.isArray(crustsPayload)
-            ? crustsPayload
-            : crustsPayload?.data?.crusts ?? crustsPayload?.crusts ?? []
-        }
-
+        const modifierCategoryIds = getModifierCategoryIds(apiCategories)
         setCategories(mapApiCategoriesToTabs(apiCategories))
-        setMenuItems(mapApiMenuItems(apiItems))
-        setToppings(mapApiToppings(apiToppings))
-        setApiCrusts(loadedCrusts)
+        setMenuItems(mapApiMenuItems(apiItems, modifierCategoryIds))
+        setToppingsByCategoryId({})
+        setCrustsByCategoryId({})
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Unable to fetch menu data.'
         setLoadError(message)
         setCategories(DEFAULT_MENU_CATEGORIES)
         setMenuItems([])
-        setToppings([])
-        setApiCrusts([])
+        setToppingsByCategoryId({})
+        setCrustsByCategoryId({})
       } finally {
         setLoading(false)
       }
@@ -151,10 +130,128 @@ export function MenuSection({ searchQuery, onAddToCart, ensureCustomerThen }: Me
     void fetchMenuAndCategories()
   }, [])
 
-  const crustsForSelectedItem = useMemo(
-    () => mapApiCrusts(apiCrusts, selectedItem?.categoryId),
-    [apiCrusts, selectedItem?.categoryId],
-  )
+  const loadToppingsForCategory = useCallback(async (categoryId: number) => {
+    if (toppingsByCategoryId[categoryId] !== undefined) return
+    if (toppingsFetchStartedRef.current.has(categoryId)) return
+    toppingsFetchStartedRef.current.add(categoryId)
+
+    setToppingsLoadingCategoryId(categoryId)
+    setToppingsErrorByCategoryId((prev) => {
+      const next = { ...prev }
+      delete next[categoryId]
+      return next
+    })
+    try {
+      const res = await cashierAuthFetch(
+        `/api/toppings?category_id=${categoryId}&is_available=true`,
+        { cache: 'no-store' },
+      )
+      const json: unknown = res ? await res.json() : null
+
+      if (!res?.ok) {
+        const message =
+          json &&
+          typeof json === 'object' &&
+          'message' in json &&
+          typeof (json as { message: unknown }).message === 'string'
+            ? (json as { message: string }).message
+            : 'Failed to fetch toppings'
+        setToppingsErrorByCategoryId((prev) => ({ ...prev, [categoryId]: message }))
+        setToppingsByCategoryId((prev) => ({ ...prev, [categoryId]: [] }))
+        return
+      }
+
+      const apiToppings = parseToppingsFromApiPayload(json)
+      setToppingsByCategoryId((prev) => ({
+        ...prev,
+        [categoryId]: mapApiToppings(apiToppings),
+      }))
+    } catch {
+      setToppingsErrorByCategoryId((prev) => ({
+        ...prev,
+        [categoryId]: 'Unable to fetch toppings',
+      }))
+      setToppingsByCategoryId((prev) => ({ ...prev, [categoryId]: [] }))
+    } finally {
+      setToppingsLoadingCategoryId((current) => (current === categoryId ? null : current))
+    }
+  }, [toppingsByCategoryId])
+
+  useEffect(() => {
+    if (selectedItem?.categoryId != null) {
+      void loadToppingsForCategory(selectedItem.categoryId)
+    }
+  }, [selectedItem?.categoryId, loadToppingsForCategory])
+
+  useEffect(() => {
+    if (secondHalfItem?.categoryId != null) {
+      void loadToppingsForCategory(secondHalfItem.categoryId)
+    }
+  }, [secondHalfItem?.categoryId, loadToppingsForCategory])
+
+  const loadCrustsForCategory = useCallback(async (categoryId: number) => {
+    if (crustsByCategoryId[categoryId] !== undefined) return
+    if (crustsFetchStartedRef.current.has(categoryId)) return
+    crustsFetchStartedRef.current.add(categoryId)
+
+    setCrustsLoadingCategoryId(categoryId)
+    setCrustsErrorByCategoryId((prev) => {
+      const next = { ...prev }
+      delete next[categoryId]
+      return next
+    })
+    try {
+      const res = await cashierAuthFetch(
+        `/api/crusts?category_id=${categoryId}&is_available=true`,
+        { cache: 'no-store' },
+      )
+      const json: unknown = res ? await res.json() : null
+
+      if (!res?.ok) {
+        const message =
+          json &&
+          typeof json === 'object' &&
+          'message' in json &&
+          typeof (json as { message: unknown }).message === 'string'
+            ? (json as { message: string }).message
+            : 'Failed to fetch crusts'
+        setCrustsErrorByCategoryId((prev) => ({ ...prev, [categoryId]: message }))
+        setCrustsByCategoryId((prev) => ({ ...prev, [categoryId]: [] }))
+        return
+      }
+
+      const apiCrusts = parseCrustsFromApiPayload(json)
+      setCrustsByCategoryId((prev) => ({
+        ...prev,
+        [categoryId]: mapApiCrustsToOptions(apiCrusts),
+      }))
+    } catch {
+      setCrustsErrorByCategoryId((prev) => ({
+        ...prev,
+        [categoryId]: 'Unable to fetch crusts',
+      }))
+      setCrustsByCategoryId((prev) => ({ ...prev, [categoryId]: [] }))
+    } finally {
+      setCrustsLoadingCategoryId((current) => (current === categoryId ? null : current))
+    }
+  }, [crustsByCategoryId])
+
+  useEffect(() => {
+    if (selectedItem?.categoryId != null) {
+      void loadCrustsForCategory(selectedItem.categoryId)
+    }
+  }, [selectedItem?.categoryId, loadCrustsForCategory])
+
+  useEffect(() => {
+    if (secondHalfItem?.categoryId != null) {
+      void loadCrustsForCategory(secondHalfItem.categoryId)
+    }
+  }, [secondHalfItem?.categoryId, loadCrustsForCategory])
+
+  const getCrustsForItem = (item: MenuItem): CrustOption[] => {
+    if (item.categoryId == null) return []
+    return crustsByCategoryId[item.categoryId] ?? []
+  }
 
   const filteredItems = useMemo(
     () =>
@@ -172,12 +269,45 @@ export function MenuSection({ searchQuery, onAddToCart, ensureCustomerThen }: Me
   const popularItems = useMemo(() => menuItems.filter((item) => item.popular), [menuItems])
 
   const getToppingsForItem = (item: MenuItem): ToppingOption[] => {
-    const filtered = toppings.filter(
-      (topping) => !topping.categoryId || topping.categoryId === item.categoryId,
-    )
-    if (filtered.length > 0) return filtered
-    return toppings
+    if (item.categoryId == null) return []
+    return toppingsByCategoryId[item.categoryId] ?? []
   }
+
+  const selectedItemToppingsLoading =
+    selectedItem?.categoryId != null &&
+    toppingsLoadingCategoryId === selectedItem.categoryId
+
+  const secondHalfToppingsLoading =
+    secondHalfItem?.categoryId != null &&
+    toppingsLoadingCategoryId === secondHalfItem.categoryId
+
+  const selectedItemToppingsError =
+    selectedItem?.categoryId != null
+      ? toppingsErrorByCategoryId[selectedItem.categoryId]
+      : undefined
+
+  const secondHalfToppingsError =
+    secondHalfItem?.categoryId != null
+      ? toppingsErrorByCategoryId[secondHalfItem.categoryId]
+      : undefined
+
+  const selectedItemCrustsLoading =
+    selectedItem?.categoryId != null &&
+    crustsLoadingCategoryId === selectedItem.categoryId
+
+  const secondHalfCrustsLoading =
+    secondHalfItem?.categoryId != null &&
+    crustsLoadingCategoryId === secondHalfItem.categoryId
+
+  const selectedItemCrustsError =
+    selectedItem?.categoryId != null
+      ? crustsErrorByCategoryId[selectedItem.categoryId]
+      : undefined
+
+  const secondHalfCrustsError =
+    secondHalfItem?.categoryId != null
+      ? crustsErrorByCategoryId[secondHalfItem.categoryId]
+      : undefined
 
   const resetHalfFlow = () => {
     setPendingHalfFirst(null)
@@ -211,11 +341,12 @@ export function MenuSection({ searchQuery, onAddToCart, ensureCustomerThen }: Me
 
   const handleQuickAdd = (item: MenuItem) => {
     ensureCustomerThen(() => {
-      const itemToppings = getToppingsForItem(item)
-      const hasApiToppings = itemToppings.some((t) => Number.isFinite(Number(t.id)))
-      const crustsForItem = mapApiCrusts(apiCrusts, item.categoryId)
-      const hasApiCrusts = crustsForItem.length > 0
-      const shouldOpenCustomization = Boolean(item.hasSizes || hasApiToppings || hasApiCrusts)
+      if (item.categoryId != null) {
+        void loadToppingsForCategory(item.categoryId)
+        void loadCrustsForCategory(item.categoryId)
+      }
+
+      const shouldOpenCustomization = Boolean(item.hasSizes || item.categoryId != null)
 
       if (shouldOpenCustomization) {
         setSelectedItem(item)
@@ -317,8 +448,12 @@ export function MenuSection({ searchQuery, onAddToCart, ensureCustomerThen }: Me
 
       <CustomizationModal
         item={selectedItem}
-        toppings={selectedItem ? getToppingsForItem(selectedItem) : toppings}
-        crusts={crustsForSelectedItem}
+        toppings={selectedItem ? getToppingsForItem(selectedItem) : []}
+        toppingsLoading={selectedItemToppingsLoading}
+        toppingsError={selectedItemToppingsError}
+        crusts={selectedItem ? getCrustsForItem(selectedItem) : []}
+        crustsLoading={selectedItemCrustsLoading}
+        crustsError={selectedItemCrustsError}
         onClose={() => setSelectedItem(null)}
         onAdd={onAddToCart}
         onHalfSizeFirstComplete={handleHalfFirstComplete}
@@ -327,7 +462,11 @@ export function MenuSection({ searchQuery, onAddToCart, ensureCustomerThen }: Me
       <CustomizationModal
         item={secondHalfItem}
         toppings={secondHalfItem ? getToppingsForItem(secondHalfItem) : []}
-        crusts={secondHalfItem ? mapApiCrusts(apiCrusts, secondHalfItem.categoryId) : []}
+        toppingsLoading={secondHalfToppingsLoading}
+        toppingsError={secondHalfToppingsError}
+        crusts={secondHalfItem ? getCrustsForItem(secondHalfItem) : []}
+        crustsLoading={secondHalfCrustsLoading}
+        crustsError={secondHalfCrustsError}
         lockSizeToHalf
         onClose={() => {
           setSecondHalfItem(null)

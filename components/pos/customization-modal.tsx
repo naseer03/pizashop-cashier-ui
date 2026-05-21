@@ -25,7 +25,11 @@ import { resolveHalfSizeKey } from '@/lib/half-and-half'
 interface CustomizationModalProps {
   item: MenuItem | null
   toppings?: ToppingOption[]
+  toppingsLoading?: boolean
+  toppingsError?: string
   crusts?: CrustOption[]
+  crustsLoading?: boolean
+  crustsError?: string
   onClose: () => void
   onAdd: (item: CartItem) => void
   /** When true, size is locked to half (second half of a half-and-half). */
@@ -37,7 +41,11 @@ interface CustomizationModalProps {
 export function CustomizationModal({
   item,
   toppings,
+  toppingsLoading = false,
+  toppingsError,
   crusts,
+  crustsLoading = false,
+  crustsError,
   onClose,
   onAdd,
   lockSizeToHalf = false,
@@ -184,14 +192,23 @@ export function CustomizationModal({
             </div>
           )}
 
-          {/* Crust Selection (API-only; hidden when none for this item category) */}
-          {availableCrusts.length > 0 && (
-            <div>
-              <h4 className="text-sm font-medium text-foreground mb-3">Crust</h4>
+          {/* Crust Selection (loaded per menu category from API) */}
+          <div>
+            <h4 className="text-sm font-medium text-foreground mb-3">Crust</h4>
+            {crustsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading crusts…</p>
+            ) : crustsError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {crustsError}
+              </p>
+            ) : availableCrusts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No crust options for this category.</p>
+            ) : (
               <div className="grid grid-cols-2 gap-2">
                 {availableCrusts.map((c) => (
                   <button
                     key={c.id}
+                    type="button"
                     onClick={() => setCrustId(c.id)}
                     className={`py-2.5 rounded-lg text-sm font-medium transition-all ${
                       crustId === c.id
@@ -200,16 +217,27 @@ export function CustomizationModal({
                     }`}
                   >
                     {c.name}
-                    {c.price > 0 && <span className="block text-xs opacity-75">+${c.price.toFixed(2)}</span>}
+                    {c.price > 0 && (
+                      <span className="block text-xs opacity-75">+${c.price.toFixed(2)}</span>
+                    )}
                   </button>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Extra Toppings */}
           <div>
             <h4 className="text-sm font-medium text-foreground mb-3">Extra Toppings</h4>
+            {toppingsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading toppings…</p>
+            ) : toppingsError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {toppingsError}
+              </p>
+            ) : availableToppings.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No extra toppings for this category.</p>
+            ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {availableToppings.map((topping) => (
                 <label
@@ -229,6 +257,7 @@ export function CustomizationModal({
                 </label>
               ))}
             </div>
+            )}
           </div>
 
         </div>

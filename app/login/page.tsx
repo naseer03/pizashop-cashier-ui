@@ -6,16 +6,27 @@ import { Pizza } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { isClientLoggedIn, loginCashier, setClientSession } from '@/lib/auth'
+import {
+  consumeAuthExpiredMessage,
+  isClientLoggedIn,
+  loginCashier,
+  setClientSession,
+} from '@/lib/auth'
+import { useStoreBranding } from '@/components/store-branding-provider'
 
 export default function LoginPage() {
   const router = useRouter()
+  const { storeName } = useStoreBranding()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
+    const expiredMessage = consumeAuthExpiredMessage()
+    if (expiredMessage) {
+      setError(expiredMessage)
+    }
     if (isClientLoggedIn()) {
       router.replace('/')
     }
@@ -46,7 +57,7 @@ export default function LoginPage() {
           <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-3xl">
             <Pizza className="size-8 text-primary" aria-hidden />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Pizza POS</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{storeName}</h1>
           <p className="text-sm text-muted-foreground">Sign in to open the cashier dashboard</p>
         </div>
 

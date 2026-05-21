@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const MENU_API_URL = 'https://pizzaapi.lefruit.in/v1/cashier/menu'
+import {
+  fetchUpstreamWithRetry,
+  getPizzaApiBaseUrl,
+  getUpstreamErrorMessage,
+} from '@/lib/upstream-fetch'
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,27 +16,25 @@ export async function GET(request: NextRequest) {
     }
 
     const onlyAvailable = request.nextUrl.searchParams.get('only_available') ?? 'true'
-
-    const upstreamUrl = new URL(MENU_API_URL)
+    const upstreamUrl = new URL(`${getPizzaApiBaseUrl()}/v1/cashier/menu`)
     upstreamUrl.searchParams.set('only_available', onlyAvailable)
 
-    const response = await fetch(upstreamUrl.toString(), {
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        Authorization: authHeader,
-      },
-    })
+    const { response, data } = await fetchUpstreamWithRetry(
+      upstreamUrl.toString(),
+      authHeader,
+    )
 
     if (!response.ok) {
       return NextResponse.json(
-        { success: false, message: 'Failed to fetch menu' },
+        data ?? {
+          success: false,
+          message: getUpstreamErrorMessage(data, 'Failed to fetch menu'),
+        },
         { status: response.status },
       )
     }
 
-    const data = await response.json()
-    return NextResponse.json(data)
+    return NextResponse.json(data ?? { success: true, data: { items: [] } })
   } catch {
     return NextResponse.json(
       { success: false, message: 'Unable to fetch menu' },

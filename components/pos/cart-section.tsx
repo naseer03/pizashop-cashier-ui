@@ -1,6 +1,6 @@
 'use client'
 
-import { Minus, Plus, Trash2, ShoppingCart, Pause, Tag, Printer, Loader2 } from 'lucide-react'
+import { Minus, Plus, Trash2, ShoppingCart, Pause, Tag, Printer, Loader2, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -28,6 +28,8 @@ interface CartSectionProps {
   onClearCart: () => void
   onHoldOrder: () => void
   onOpenDiscount: () => void
+  orderComments: string
+  onOpenComments: () => void
 }
 
 export function CartSection({
@@ -44,7 +46,10 @@ export function CartSection({
   onClearCart,
   onHoldOrder,
   onOpenDiscount,
+  orderComments,
+  onOpenComments,
 }: CartSectionProps) {
+  const hasComments = orderComments.trim().length > 0
   const subtotal = cart.reduce((sum, item) => sum + calculateItemTotal(item), 0)
   const discountAmount = discount && discount.value > 0 ? calculateDiscountAmount(subtotal, discount) : 0
   const afterDiscount = subtotal - discountAmount
@@ -83,12 +88,25 @@ export function CartSection({
     >
       {/* Header */}
       <div className="p-3 sm:p-4 border-b border-border shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShoppingCart className="size-4 sm:size-5 text-primary" />
-            <h2 className="font-semibold text-sm sm:text-base text-foreground">Current Order</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <ShoppingCart className="size-4 sm:size-5 text-primary shrink-0" />
+            <h2 className="font-semibold text-sm sm:text-base text-foreground truncate">Current Order</h2>
           </div>
-          <Badge variant="outline" className="text-xs">{orderTypeLabels[orderType]}</Badge>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              type="button"
+              variant={hasComments ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 gap-1.5 px-2.5"
+              onClick={onOpenComments}
+              title={hasComments ? orderComments : 'Add order comments'}
+            >
+              <MessageSquare className="size-3.5 shrink-0" />
+              <span className="text-xs hidden sm:inline">Comments</span>
+            </Button>
+            <Badge variant="outline" className="text-xs">{orderTypeLabels[orderType]}</Badge>
+          </div>
         </div>
         {cart.length > 0 && (
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
@@ -210,7 +228,14 @@ export function CartSection({
       {/* Summary */}
       {cart.length > 0 && (
         <div className="border-t border-border p-3 sm:p-4 space-y-2 sm:space-y-3 shrink-0 bg-card">
-          {/* Add Discount Button */}
+          {hasComments && (
+            <p className="text-xs text-muted-foreground line-clamp-2 rounded-md bg-secondary/80 px-2.5 py-2">
+              <span className="font-medium text-foreground">Comments: </span>
+              {orderComments}
+            </p>
+          )}
+
+          {/* Add Discount Button
           <Button
             variant="outline"
             size="sm"
@@ -223,7 +248,7 @@ export function CartSection({
             ) : (
               'Add Discount'
             )}
-          </Button>
+          </Button> */}
 
           <div className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm">
             <div className="flex justify-between text-muted-foreground">

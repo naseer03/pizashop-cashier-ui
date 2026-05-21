@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-const CATEGORY_API_URL = 'https://pizzaapi.lefruit.in/v1/cashier/categories'
+import {
+  fetchUpstreamWithRetry,
+  getPizzaApiBaseUrl,
+  getUpstreamErrorMessage,
+} from '@/lib/upstream-fetch'
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,27 +15,24 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const response = await fetch(CATEGORY_API_URL, {
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        Authorization: authHeader,
-      },
-    })
+    const url = `${getPizzaApiBaseUrl()}/v1/cashier/categories`
+    const { response, data } = await fetchUpstreamWithRetry(url, authHeader)
 
     if (!response.ok) {
       return NextResponse.json(
-        { success: false, message: 'Failed to fetch categories' },
-        { status: response.status }
+        data ?? {
+          success: false,
+          message: getUpstreamErrorMessage(data, 'Failed to fetch categories'),
+        },
+        { status: response.status },
       )
     }
 
-    const data = await response.json()
-    return NextResponse.json(data)
+    return NextResponse.json(data ?? { success: true, data: { categories: [] } })
   } catch {
     return NextResponse.json(
       { success: false, message: 'Unable to fetch categories' },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }

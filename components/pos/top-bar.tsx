@@ -24,6 +24,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { OrdersHistorySheet } from '@/components/pos/orders-history-sheet'
+import { useStoreBranding } from '@/components/store-branding-provider'
 
 interface TopBarProps {
   searchQuery: string
@@ -51,6 +52,7 @@ export function TopBar({
   const [mounted, setMounted] = useState(false)
   const { theme, setTheme } = useTheme()
   const [ordersOpen, setOrdersOpen] = useState(false)
+  const { storeName } = useStoreBranding()
 
   useEffect(() => {
     setMounted(true)
@@ -93,7 +95,7 @@ export function TopBar({
       <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-xl sm:text-2xl">🍕</span>
-          <span className="font-bold text-base sm:text-lg text-foreground hidden md:inline">Pizza POS</span>
+          <span className="font-bold text-base sm:text-lg text-foreground hidden md:inline">{storeName}</span>
         </div>
 
         <Button

@@ -1,4 +1,4 @@
-import type { CartItem, Discount, OrderType } from '@/lib/pos-data'
+import type { CartItem, Discount, OrderType, PaymentMethod } from '@/lib/pos-data'
 import { formatHalfAndHalfOrderNote } from '@/lib/half-and-half'
 
 export type CashierOrderTypeApi = 'dine_in' | 'takeaway' | 'delivery'
@@ -39,27 +39,31 @@ export function mapCartItemsToOrderLines(cart: CartItem[]) {
   })
 }
 
-/**
- * Draft order body for KOT receipt — same shape as `POST /v1/cashier/orders` checkout
- * (no `status` / `payment_status` / `customer_id`; those are not on create-order and can break validation).
- */
-export function buildKotReceiptRequestBody(params: {
+export function buildCreateOrderRequestBody(params: {
   cart: CartItem[]
   orderType: OrderType
   discount: Discount | null
   customer: { name: string; phone: string; address?: string; deliveryNotes?: string; tableNumber?: string }
+  paymentMethod: PaymentMethod
+  kotPrinted?: boolean
+  comments?: string
 }): Record<string, unknown> {
   const normalizedOrderType = normalizeOrderTypeForApi(params.orderType)
+  const trimmedComments = params.comments?.trim()
 
   const body: Record<string, unknown> = {
     order_type: normalizedOrderType,
-    kot_printed: true,
+    kot_printed: params.kotPrinted ?? false,
     customer_name: params.customer.name,
     customer_phone: params.customer.phone,
     customer_email: '',
     items: mapCartItemsToOrderLines(params.cart),
     notes: '',
-    payment_method: 'cash',
+    payment_method: params.paymentMethod,
+  }
+
+  if (trimmedComments) {
+    body.comments = trimmedComments
   }
 
   if (normalizedOrderType === 'dine_in' && params.customer.tableNumber) {
@@ -74,4 +78,22 @@ export function buildKotReceiptRequestBody(params: {
   }
 
   return body
+}
+
+/**
+ * Draft order body for KOT receipt — same shape as `POST /v1/cashier/orders` checkout
+ * (no `status` / `payment_status` / `customer_id`; those are not on create-order and can break validation).
+ */
+export function buildKotReceiptRequestBody(params: {
+  cart: CartItem[]
+  orderType: OrderType
+  discount: Discount | null
+  customer: { name: string; phone: string; address?: string; deliveryNotes?: string; tableNumber?: string }
+  comments?: string
+}): Record<string, unknown> {
+  return buildCreateOrderRequestBody({
+    ...params,
+    paymentMethod: 'cash',
+    kotPrinted: true,
+  })
 }

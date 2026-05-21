@@ -33,6 +33,7 @@ interface OrderSuccessModalProps {
   kotOrderId?: number
   kotTableNumber?: string | null
   kotItems?: KotLineItemDisplay[]
+  kotComments?: string
 }
 
 export function OrderSuccessModal({
@@ -49,7 +50,9 @@ export function OrderSuccessModal({
   kotOrderId,
   kotTableNumber,
   kotItems = [],
+  kotComments,
 }: OrderSuccessModalProps) {
+  const trimmedKotComments = kotComments?.trim()
   const paymentLabels: Record<PaymentMethod, string> = {
     cash: 'Cash',
     card: 'Card',
@@ -76,11 +79,11 @@ export function OrderSuccessModal({
         </DialogDescription>
         <div className="py-6 space-y-6 text-center">
           {/* Success Icon */}
-          <div className="flex justify-center">
+          {/* <div className="flex justify-center">
             <div className="size-20 rounded-full bg-success/20 flex items-center justify-center animate-in zoom-in-50 duration-300">
               <CheckCircle2 className="size-10 text-success" />
             </div>
-          </div>
+          </div> */}
 
           {/* Success Message */}
           {/* <div className="space-y-2"> */}
@@ -128,6 +131,12 @@ export function OrderSuccessModal({
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Table Number</span>
                 <Badge variant="outline">{kotTableNumber}</Badge>
+              </div>
+            )}
+            {isKotVariant && trimmedKotComments && (
+              <div className="space-y-1 border-t border-border pt-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Comments</p>
+                <p className="text-sm text-foreground whitespace-pre-wrap">{trimmedKotComments}</p>
               </div>
             )}
             {isKotVariant && (

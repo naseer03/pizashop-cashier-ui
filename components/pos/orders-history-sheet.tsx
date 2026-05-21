@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { ClipboardList, MapPin, Phone, User } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { ClipboardList, Loader2, MapPin, Phone, Search, User } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -11,13 +11,24 @@ import {
 } from '@/components/ui/sheet'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { OrderSearchResultCard } from '@/components/pos/order-search-result-card'
+import { cashierAuthFetch, handleAuthErrorFromResponse } from '@/lib/cashier-api'
 import {
   filterOrdersByPeriod,
   loadOrders,
   type OrderPeriodFilter,
   type SavedOrder,
 } from '@/lib/order-history'
+import {
+  buildMenuItemLookup,
+  mapApiOrderSearchToDisplay,
+  parseOrderSearchResponse,
+  type OrderSearchDisplay,
+} from '@/lib/order-search'
+import type { ApiMenuItem } from '@/lib/pos-data'
 import type { OrderType, PaymentMethod } from '@/lib/pos-data'
 
 interface OrdersHistorySheetProps {
@@ -40,6 +51,10 @@ const paymentLabels: Record<PaymentMethod, string> = {
 export function OrdersHistorySheet({ open, onOpenChange }: OrdersHistorySheetProps) {
   const [period, setPeriod] = useState<OrderPeriodFilter>('day')
   const [orders, setOrders] = useState<SavedOrder[]>([])
+  const [orderIdQuery, setOrderIdQuery] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [searchResult, setSearchResult] = useState<OrderSearchDisplay | null>(null)
 
   const refresh = () => setOrders(loadOrders())
 
@@ -63,6 +78,95 @@ export function OrdersHistorySheet({ open, onOpenChange }: OrdersHistorySheetPro
     [orders, period],
   )
 
+  const handleSearch = useCallback(async (e?: FormEvent) => {
+    e?.preventDefault()
+    const query = orderIdQuery.trim()
+    if (!query) {
+      setSearchError('Enter an order number (e.g. ORD-2026-001) or database ID (e.g. 82).')
+      setSearchResult(null)
+      return
+    }
+
+    setSearching(true)
+    setSearchError(null)
+    setSearchResult(null)
+
+    try {
+      const searchParams = new URLSearchParams()
+      if (/^ORD-/i.test(query)) {
+        searchParams.set('order_number', query)
+      } else if (/^\d+$/.test(query)) {
+        searchParams.set('order_id', query)
+      } else {
+        searchParams.set('order_number', query)
+      }
+
+      const response = await cashierAuthFetch(
+        `/api/orders/search?${searchParams.toString()}`,
+        { cache: 'no-store' },
+      )
+
+      if (!response) {
+        setSearchError('Please sign in again to search orders.')
+        return
+      }
+
+      let json: unknown = null
+      try {
+        json = await response.json()
+      } catch {
+        json = null
+      }
+
+      const parsed = parseOrderSearchResponse(json)
+
+      if (!response.ok || !parsed.success || !parsed.data) {
+        if (json && handleAuthErrorFromResponse(response.status, json)) return
+        const message =
+          parsed.message ||
+          (response.status === 404 ? 'Order not found.' : 'Unable to find that order.')
+        setSearchError(message)
+        return
+      }
+
+      let menuLookup = undefined
+      try {
+        const menuRes = await cashierAuthFetch('/api/menu?only_available=false', {
+          cache: 'no-store',
+        })
+        if (menuRes?.ok) {
+          const menuJson = (await menuRes.json()) as {
+            success?: boolean
+            data?: { items?: ApiMenuItem[] }
+          }
+          const menuItems = menuJson?.data?.items ?? []
+          if (menuItems.length > 0) {
+            menuLookup = buildMenuItemLookup(menuItems)
+          }
+        }
+      } catch {
+        // Menu lookup is optional; order items still show API fields
+      }
+
+      setSearchResult(mapApiOrderSearchToDisplay(parsed.data, menuLookup))
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : ''
+      setSearchError(
+        detail
+          ? `Unable to search orders: ${detail}`
+          : 'Unable to search orders right now. Please try again.',
+      )
+    } finally {
+      setSearching(false)
+    }
+  }, [orderIdQuery])
+
+  const clearSearch = useCallback(() => {
+    setOrderIdQuery('')
+    setSearchError(null)
+    setSearchResult(null)
+  }, [])
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -75,12 +179,52 @@ export function OrdersHistorySheet({ open, onOpenChange }: OrdersHistorySheetPro
             Orders
           </SheetTitle>
           <SheetDescription>
-            Completed orders with customer details. Filter by time range.
+            Search by printed order number (e.g. ORD-2026-001) or database ID (e.g. 82).
           </SheetDescription>
         </SheetHeader>
 
+        <div className="shrink-0 space-y-2 border-b border-border px-6 py-3">
+          <p className="text-xs font-medium text-muted-foreground">Search order</p>
+          <form onSubmit={(e) => void handleSearch(e)} className="flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={orderIdQuery}
+                onChange={(e) => setOrderIdQuery(e.target.value)}
+                placeholder="ORD-2026-001"
+                className="h-9 pl-9"
+                disabled={searching}
+                aria-label="Order ID or order number"
+              />
+            </div>
+            <Button type="submit" size="sm" className="h-9 shrink-0 px-3" disabled={searching}>
+              {searching ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                'Find'
+              )}
+            </Button>
+          </form>
+          {(searchResult || searchError) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={clearSearch}
+            >
+              Clear search
+            </Button>
+          )}
+          {searchError && (
+            <p className="text-xs text-destructive" role="alert">
+              {searchError}
+            </p>
+          )}
+        </div>
+
         <div className="shrink-0 border-b border-border px-6 py-3">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Show</p>
+          <p className="mb-2 text-xs font-medium text-muted-foreground">Local history</p>
           <ToggleGroup
             type="single"
             value={period}
@@ -103,20 +247,25 @@ export function OrdersHistorySheet({ open, onOpenChange }: OrdersHistorySheetPro
 
         <ScrollArea className="min-h-0 flex-1 basis-0">
           <div className="space-y-3 p-4 pr-2">
-            {filtered.length === 0 ? (
+            {searchResult && <OrderSearchResultCard order={searchResult} />}
+
+            {!searchResult && searching && (
+              <p className="py-8 text-center text-sm text-muted-foreground">Searching…</p>
+            )}
+
+            {filtered.length === 0 && !searchResult && !searching ? (
               <p className="py-12 text-center text-sm text-muted-foreground">
-                No orders in this period.
+                No orders in this period on this device.
               </p>
             ) : (
-              filtered.map((order) => (
-                <OrderCard key={order.id} order={order} />
-              ))
+              filtered.map((order) => <OrderCard key={order.id} order={order} />)
             )}
           </div>
         </ScrollArea>
 
         <div className="shrink-0 border-t border-border px-6 py-3 text-center text-xs text-muted-foreground">
-          {filtered.length} order{filtered.length !== 1 ? 's' : ''} · Stored on this device only
+          {searchResult ? 'Server order · ' : ''}
+          {filtered.length} local order{filtered.length !== 1 ? 's' : ''} in period
         </div>
       </SheetContent>
     </Sheet>

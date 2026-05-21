@@ -145,8 +145,17 @@ export interface ApiTopping {
     id: number
     name: string
   }
+  category_ids?: number[]
+  categories?: Array<{ id: number; name: string }>
   is_available?: boolean
   is_active?: boolean
+  sort_order?: number
+}
+
+export interface ApiToppingCategoryGroup {
+  id: number
+  name: string
+  toppings?: ApiTopping[]
 }
 
 export interface ToppingOption {
@@ -177,6 +186,12 @@ export interface CrustOption {
   price: number
 }
 
+export interface ApiCrustCategoryGroup {
+  id: number
+  name: string
+  crusts?: ApiCrust[]
+}
+
 export const presetDiscounts: Discount[] = [
   { type: 'percentage', value: 5, name: '5% Off' },
   { type: 'percentage', value: 10, name: '10% Off' },
@@ -202,6 +217,43 @@ export interface MenuCategoryTab {
 export const DEFAULT_MENU_CATEGORIES: MenuCategoryTab[] = [
   { value: 'all', label: 'All', icon: '📋' },
 ]
+
+/** Categories used only for toppings/crusts modifiers — not sellable menu products */
+const MODIFIER_CATEGORY_KEYS = new Set([
+  'topping',
+  'toppings',
+  'crust',
+  'crusts',
+  'modifier',
+  'modifiers',
+  'add-on',
+  'add-ons',
+  'addon',
+  'addons',
+  'extra',
+  'extras',
+])
+
+export function isModifierCategory(name: string, slug?: string | null): boolean {
+  const normalizedName = name.trim().toLowerCase().replace(/[\s_]+/g, '-')
+  const normalizedSlug = (slug ?? '').trim().toLowerCase().replace(/[\s_]+/g, '-')
+  return (
+    MODIFIER_CATEGORY_KEYS.has(normalizedName) ||
+    MODIFIER_CATEGORY_KEYS.has(normalizedSlug) ||
+    /^toppings?$/.test(normalizedName) ||
+    /^crusts?$/.test(normalizedName) ||
+    /^toppings?$/.test(normalizedSlug) ||
+    /^crusts?$/.test(normalizedSlug)
+  )
+}
+
+export function getModifierCategoryIds(categories: ApiCategory[]): Set<number> {
+  return new Set(
+    categories
+      .filter((cat) => isModifierCategory(cat.name, cat.slug))
+      .map((cat) => cat.id),
+  )
+}
 
 function normalizeCategory(name: string): string {
   const lowered = name.trim().toLowerCase()
@@ -277,6 +329,7 @@ function sortMenuSizesForDisplay(sizes: MenuItemSizeOption[]): MenuItemSizeOptio
 export function mapApiCategoriesToTabs(apiCategories: ApiCategory[]): MenuCategoryTab[] {
   const active = apiCategories
     .filter((cat) => cat.is_active)
+    .filter((cat) => !isModifierCategory(cat.name, cat.slug))
     .sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name))
     .map((cat) => ({
       value: cat.slug || normalizeCategory(cat.name),
@@ -287,9 +340,19 @@ export function mapApiCategoriesToTabs(apiCategories: ApiCategory[]): MenuCatego
   return [{ value: 'all', label: 'All', icon: '📋' }, ...active]
 }
 
-export function mapApiMenuItems(apiItems: ApiMenuItem[]): MenuItem[] {
+export function mapApiMenuItems(
+  apiItems: ApiMenuItem[],
+  modifierCategoryIds?: Set<number>,
+): MenuItem[] {
   return apiItems
     .filter((item) => item.is_available)
+    .filter((item) => !isModifierCategory(item.category.name))
+    .filter(
+      (item) =>
+        !modifierCategoryIds ||
+        modifierCategoryIds.size === 0 ||
+        !modifierCategoryIds.has(item.category.id),
+    )
     .map((item) => {
       const normalizedCategory = normalizeCategory(item.category.name)
       const mappedSizes = sortMenuSizesForDisplay(
@@ -325,42 +388,156 @@ export function mapApiMenuItems(apiItems: ApiMenuItem[]): MenuItem[] {
     })
 }
 
+function toppingCategoryId(topping: ApiTopping): number | undefined {
+  return topping.category?.id ?? topping.categories?.[0]?.id ?? topping.category_ids?.[0]
+}
+
+function toppingCategoryName(topping: ApiTopping): string | undefined {
+  return topping.category?.name ?? topping.categories?.[0]?.name
+}
+
+/** Flattens grouped `data.categories[].toppings` or legacy flat `data.toppings` lists. */
+export function parseToppingsFromApiPayload(payload: unknown): ApiTopping[] {
+  if (!payload || typeof payload !== 'object') return []
+
+  const root = payload as Record<string, unknown>
+
+  if (Array.isArray(root)) {
+    return root as ApiTopping[]
+  }
+
+  const data = root.data
+  if (!data || typeof data !== 'object') {
+    if (Array.isArray(root.toppings)) return root.toppings as ApiTopping[]
+    return []
+  }
+
+  const dataRecord = data as Record<string, unknown>
+
+  if (Array.isArray(dataRecord.toppings)) {
+    return dataRecord.toppings as ApiTopping[]
+  }
+
+  if (Array.isArray(dataRecord.categories)) {
+    const groups = dataRecord.categories as ApiToppingCategoryGroup[]
+    const flat: ApiTopping[] = []
+    for (const group of groups) {
+      const groupId = group.id
+      const groupName = group.name
+      for (const topping of group.toppings ?? []) {
+        flat.push({
+          ...topping,
+          category_ids: topping.category_ids ?? (groupId != null ? [groupId] : undefined),
+          categories:
+            topping.categories ??
+            (groupId != null && groupName
+              ? [{ id: groupId, name: groupName }]
+              : undefined),
+        })
+      }
+    }
+    return flat
+  }
+
+  return []
+}
+
 export function mapApiToppings(apiToppings: ApiTopping[]): ToppingOption[] {
   const activeOrAll = apiToppings.filter(
     (topping) => topping.is_available !== false && topping.is_active !== false,
   )
-  return activeOrAll.map((topping) => ({
-    id: String(topping.id),
-    name: topping.name,
-    price: topping.price,
-    categoryId: topping.category?.id,
-    categoryName: topping.category?.name,
-  }))
+
+  return [...activeOrAll]
+    .sort(
+      (a, b) =>
+        (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name),
+    )
+    .map((topping) => ({
+      id: String(topping.id),
+      name: topping.name,
+      price: topping.price,
+      categoryId: toppingCategoryId(topping),
+      categoryName: toppingCategoryName(topping),
+    }))
 }
 
 function crustCategoryId(crust: ApiCrust): number | undefined {
   return crust.category?.id ?? crust.category_id
 }
 
-/** Only crusts whose category id matches the menu item category (API-only; no fallback list). */
-export function mapApiCrusts(apiCrusts: ApiCrust[], selectedCategoryId: number | undefined): CrustOption[] {
+/** Flattens grouped `data.categories[].crusts` or legacy flat `data.crusts` lists. */
+export function parseCrustsFromApiPayload(payload: unknown): ApiCrust[] {
+  if (!payload || typeof payload !== 'object') return []
+
+  const root = payload as Record<string, unknown>
+
+  if (Array.isArray(root)) {
+    return root as ApiCrust[]
+  }
+
+  const data = root.data
+  if (!data || typeof data !== 'object') {
+    if (Array.isArray(root.crusts)) return root.crusts as ApiCrust[]
+    return []
+  }
+
+  const dataRecord = data as Record<string, unknown>
+
+  if (Array.isArray(dataRecord.crusts)) {
+    return dataRecord.crusts as ApiCrust[]
+  }
+
+  if (Array.isArray(dataRecord.categories)) {
+    const groups = dataRecord.categories as ApiCrustCategoryGroup[]
+    const flat: ApiCrust[] = []
+    for (const group of groups) {
+      const groupId = group.id
+      const groupName = group.name
+      for (const crust of group.crusts ?? []) {
+        flat.push({
+          ...crust,
+          category_id: crust.category_id ?? groupId,
+          category:
+            crust.category ??
+            (groupId != null && groupName ? { id: groupId, name: groupName } : null),
+        })
+      }
+    }
+    return flat
+  }
+
+  return []
+}
+
+export function mapApiCrustsToOptions(apiCrusts: ApiCrust[]): CrustOption[] {
+  return [...apiCrusts]
+    .filter((crust) => crust.is_available !== false)
+    .sort(
+      (a, b) =>
+        (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name),
+    )
+    .map((crust) => ({
+      id: String(crust.id),
+      name: crust.name,
+      price: crust.price,
+    }))
+}
+
+/** Only crusts whose category id matches the menu item category (client-side filter). */
+export function mapApiCrusts(
+  apiCrusts: ApiCrust[],
+  selectedCategoryId: number | undefined,
+): CrustOption[] {
   if (selectedCategoryId == null) {
     return []
   }
 
-  const available = apiCrusts
-    .filter((crust) => crust.is_available !== false)
-    .filter((crust) => {
-      const cid = crustCategoryId(crust)
-      return cid != null && cid === selectedCategoryId
-    })
-    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
+  const filtered = apiCrusts.filter((crust) => {
+    const cid = crustCategoryId(crust)
+    return cid != null && cid === selectedCategoryId
+  })
 
-  return available.map((crust) => ({
-    id: String(crust.id),
-    name: crust.name,
-    price: crust.price,
-  }))
+  return mapApiCrustsToOptions(filtered)
 }
 
 /** Decimal multiplier applied to taxable amount after discount (e.g. 0.05 → 5%). */
